@@ -1,0 +1,154 @@
+<?php
+/**
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var array $status
+ * @var string $csrf
+ */
+$this->headLink()->appendStylesheet($this->assetUrl('css/history.css', 'RevisionHistory'));
+$s = $this->revisionHistoryShow();
+$e = [$s, 'e'];
+$num = function ($n) { return $n === null ? '—' : number_format((int) $n); };
+$last = $status['last'];
+$tables = $last['tables'] ?? [];
+$newTables = array_values(array_filter($tables, function ($t) { return !empty($t['new']); }));
+$grew = array_values(array_filter($tables, function ($t) { return !empty($t['was']) && $t['rows'] !== null && $t['rows'] !== $t['was']; }));
+
+echo $this->pageTitle('Checking the data itself', 1, 'Revision History');
+?>
+<div class="rh-wrap rh-copy">
+<p class="rh-crumbs"><a href="<?= $e($this->url('admin/revision-history')) ?>">← Revision History</a></p>
+
+<p>Everything saved through Omeka is heard as it happens. A module that writes the tables with its own SQL is not,
+and neither is a change made straight in the database or a table put back from a backup.</p>
+
+<p>So the data is looked at afterwards. One number is kept for what each item, media and item set holds — its own row, its values,
+and the notes drawn on it. When that number is different from the last check and nothing in the history accounts for the difference,
+an entry is written saying so, and it appears on the history page like any other.</p>
+
+<?php $room = $status['room']; $mb = function ($b) { return $b >= 1048576 ? number_format($b / 1048576, 1) . ' MB' : number_format(max(0, $b) / 1024, 0) . ' KB'; }; ?>
+<div class="rh-about">
+<?php if ($status['copy']): ?>
+    <p><strong>A copy of what each resource holds is being kept</strong> (<?= number_format($status['copied']) ?> written down, <?= $e($mb($room['copy_now'])) ?>),
+    so a change nobody recorded can say which values were added, taken away or changed — not only that something was.
+    For comparison, Omeka's own <code>value</code> table is <?= $e($mb($room['value_table'])) ?>.</p>
+    <form method="post">
+        <input type="hidden" name="revision_history_csrf" value="<?= $e($csrf) ?>">
+        <input type="hidden" name="revision_history_copy" value="off">
+        <button type="submit">Stop keeping the copy and throw it away</button>
+    </form>
+<?php else: ?>
+    <p><strong>Without a copy, a check says that something changed, not what</strong>: the number is a fingerprint, not a second copy of the data.
+    Keeping a copy as well would take about <?= $e($mb($room['estimate'])) ?> here
+    (<?= number_format($room['values']) ?> values, <?= number_format($room['value_length']) ?> characters each on average;
+    Omeka's own <code>value</code> table is <?= $e($mb($room['value_table'])) ?>).
+    It is written down on each check, only for what changed, so it costs room rather than time — once it is on, it keeps itself up to date with no further asking.</p>
+    <form method="post">
+        <input type="hidden" name="revision_history_csrf" value="<?= $e($csrf) ?>">
+        <input type="hidden" name="revision_history_copy" value="on">
+        <button type="submit">Keep a copy, so a change can say what it was</button>
+    </form>
+<?php endif; ?>
+</div>
+
+<div class="rh-about">
+<?php $every = (int) $status['every']; ?>
+    <p><?php if ($every): ?><strong>A check happens by itself</strong> when the last one is more than <?= $every ?> hour<?= $every === 1 ? '' : 's' ?> old:
+    the next time somebody opens any page in the admin, one is started in the background. Nobody has to press anything.
+    <?php else: ?><strong>Checks only happen when the button below is pressed.</strong><?php endif; ?>
+    The question is asked on every admin page — anywhere in Omeka, not only here — so a site somebody is working in checks itself while they work.
+    Asking costs one small query; the check itself runs in the background and no page waits for it. Nights and weekends are caught the next time somebody signs in.</p>
+<?php
+    // The same php that is running this page, when that is a php to run a file with.
+    $php = defined('PHP_BINARY') && PHP_BINARY && strpos(basename(PHP_BINARY), 'php') === 0 && strpos(basename(PHP_BINARY), 'fpm') === false ? PHP_BINARY : 'php';
+    $line = '0 * * * * ' . $php . ' ' . dirname(__DIR__, 4) . '/watch.php >/dev/null 2>&1';
+?>
+    <p>A server with cron can keep its own clock instead, which also works at night and at the weekend when nobody opens a page.
+    Every hour, on the server itself:</p>
+    <pre class="rh-cron"><?= $e($line) ?></pre>
+    <p>Run that way, a check leaves no background job behind — it does the work itself. The two can be used together: cron for the quiet hours,
+    and the setting below as a net for when cron is not there.</p>
+    <form method="post" class="rh-filters">
+        <input type="hidden" name="revision_history_csrf" value="<?= $e($csrf) ?>">
+        <label><span>Check by itself</span>
+            <select name="revision_history_every">
+                <?php foreach ([1 => 'When the last one is an hour old', 4 => 'When the last one is four hours old', 24 => 'When the last one is a day old', 168 => 'When the last one is a week old', 0 => 'Never — only when the button is pressed'] as $hours => $word): ?>
+                <option value="<?= (int) $hours ?>"<?= $every === (int) $hours ? ' selected' : '' ?>><?= $e($word) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <div class="rh-go"><button type="submit">Save</button></div>
+    </form>
+</div>
+
+<?php if ($status['running']): ?>
+<div class="rh-warn"><strong>A check is running.</strong> Reload this page to see what it found.</div>
+<?php endif; ?>
+
+<table>
+    <tbody>
+        <tr><td>Items, media and item sets</td><td class="n"><?= $num($status['resources']) ?></td></tr>
+        <tr><td>Of those, with a number written down</td><td class="n"><?= $num($status['remembered']) ?></td></tr>
+        <tr><td>First check</td><td class="n"><?= $status['baseline'] ? $e($s->local((string) $status['baseline'])->format('j F Y, H:i')) : 'not yet' ?></td></tr>
+        <tr><td>Last check</td><td class="n"><?= $last ? $e($s->local((string) $last['at'])->format('j F Y, H:i')) : '—' ?></td></tr>
+    </tbody>
+</table>
+
+<?php if ($last && !empty($last['first'])): ?>
+<p>The last check was the first one: <?= $num($last['checked']) ?> resources were written down as they were then.
+Nothing could be reported, because there was nothing to compare against. From the next check on, a difference can be seen.</p>
+<?php elseif ($last): $f = $last['found']; $ex = $last['examples'] ?? []; ?>
+<table>
+    <thead><tr><th>What the last check found, that this history does not account for</th><th></th></tr></thead>
+    <tbody>
+        <tr><td>Changed</td><td class="n"><?= $num($f['changed'] ?? 0) ?></td></tr>
+        <tr><td>No longer here</td><td class="n"><?= $num($f['gone'] ?? 0) ?></td></tr>
+        <tr><td>Here, with nothing saying it was created</td><td class="n"><?= $num($f['appeared'] ?? 0) ?></td></tr>
+    </tbody>
+</table>
+<?php if (array_sum([(int) ($f['changed'] ?? 0), (int) ($f['gone'] ?? 0), (int) ($f['appeared'] ?? 0)])): ?>
+<p>Each one has its own entry on the history page: <a href="<?= $e($this->url('admin/revision-history', [], ['query' => ['what' => 'edited']])) ?>">open the history</a>
+and look for <em>found by checking the data itself</em>. The first few:
+<?php foreach (['changed' => 'changed', 'gone' => 'gone', 'appeared' => 'new'] as $k => $word):
+    if (empty($ex[$k])) continue; ?>
+<br><?= $e($word) ?>:
+<?php foreach ($ex[$k] as $id): ?><a href="<?= $e($this->url('admin/revision-history', ['action' => 'item', 'id' => (int) $id])) ?>">#<?= (int) $id ?></a> <?php endforeach;
+endforeach; ?>
+</p>
+<?php else: ?>
+<p>Nothing unaccounted for. Everything the data holds matches what the history says about it.</p>
+<?php endif; ?>
+<?php endif; ?>
+
+<?php if (!$status['running']): ?>
+<form method="post">
+    <input type="hidden" name="revision_history_csrf" value="<?= $e($csrf) ?>">
+    <button type="submit">Check now</button>
+</form>
+<p class="rh-about">Reads every resource once. It reads, and changes nothing, so it can be done often.
+Nothing is changed by it: it only reads, writes down the numbers, and writes an entry for what nothing else accounts for.
+This button is for checking straight away; otherwise it happens by itself, as set above.</p>
+<?php endif; ?>
+
+<?php if ($tables): ?>
+<h3>Tables in this database</h3>
+<p>A module that keeps its own record cannot be read here without somebody looking at that module first.
+What can be seen without being told is a table appearing, growing or vanishing. That is what this list is for.</p>
+<?php if ($newTables): ?>
+<div class="rh-warn"><strong><?= count($newTables) ?> table<?= count($newTables) === 1 ? '' : 's' ?> seen for the first time:</strong>
+<?php foreach ($newTables as $t): ?><code><?= $e($t['name']) ?></code> (<?= $num($t['rows']) ?>) <?php endforeach; ?>
+</div>
+<?php endif; ?>
+<table>
+    <thead><tr><th>Table</th><th>Rows now</th><th>At the check before</th></tr></thead>
+    <tbody>
+    <?php foreach ($tables as $t): ?>
+    <tr>
+        <td><code><?= $e($t['name']) ?></code><?= !empty($t['new']) ? ' <span class="rh-id">new</span>' : '' ?><?= !empty($t['gone']) ? ' <span class="rh-gone">gone</span>' : '' ?></td>
+        <td class="n"><?= $t['rows'] === null ? '<span class="rh-gone">—</span>' : $num($t['rows']) ?></td>
+        <td class="n"><?= $t['was'] === null ? '—' : $num($t['was']) ?></td>
+    </tr>
+    <?php endforeach; ?>
+    </tbody>
+</table>
+<?php endif; ?>
+</div>

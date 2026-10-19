@@ -1,0 +1,343 @@
+<?php
+/**
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var array $events
+ * @var string $what all|created|deleted|added|removed|edited
+ * @var bool $showItem whether each card names its item (not on an item's own page)
+ */
+$s = $this->revisionHistoryShow();
+$s->prepare($events);
+$showItem = isset($showItem) ? $showItem : true;
+
+$opWord = ['added' => 'Added', 'removed' => 'Removed', 'edited' => 'Edited', 'order' => 'Reordered'];
+$wantOps = [
+    'added' => ['added'],
+    'removed' => ['removed'],
+    'edited' => ['edited', 'order'],
+];
+
+$adminUrl = function (string $kind, int $id) {
+    $controller = ['item' => 'item', 'media' => 'media', 'item_set' => 'item-set'][$kind] ?? 'item';
+    return $this->url('admin/id', ['controller' => $controller, 'id' => $id]);
+};
+
+$changeLi = function (array $c) use ($s, $opWord) {
+    $op = $c['op'];
+    $body = in_array($op, ['edited', 'order'], true)
+        ? $s->edit($c)
+        : $s->value($op === 'added' ? $c['after'] : $c['before'], $c['field']);
+    return '<li class="rh-c rh-op-' . $s->e($op) . '">'
+        . '<span class="rh-opw">' . $s->e($opWord[$op] ?? $op) . '</span>'
+        . '<span class="rh-f">' . $s->e($s->fieldLabel($c['field'])) . '</span>'
+        . '<span class="rh-v">' . $body . $s->place($c) . '</span></li>';
+};
+
+/**
+ * A card's lines. A field of several values was written down whole as well as line by
+ * line, and where that whole is there it is drawn instead of the lines: both sides of
+ * the field, in order, with what left it struck through and what came into it in green
+ * — the same picture the dialog shows before a save. Values that look alike are the
+ * reason: "Removed Keywords: ภาพถ่าย" says nothing on its own when the field held six
+ * of them. The lines are still in the record, and still in the spreadsheet.
+ */
+$lines = function (array $cs) use ($s, $changeLi, $opWord) {
+    // Links saved with their exact data type are set aside first: nobody did them on
+    // purpose, and a dozen of them would bury the one change that was made. They are
+    // written down row by row all the same, and gathered into one line at the end.
+    $exact = [];
+    $rest = [];
+    foreach ($cs as $c) {
+        if (\RevisionHistory\View\Helper\RevisionHistoryShow::exactType($c)) {
+            $exact[] = $c;
+        } else {
+            $rest[] = $c;
+        }
+    }
+    // A field that has nothing else changed is not drawn as a whole field either.
+    $left = [];
+    foreach ($rest as $c) {
+        if ($c['op'] !== 'field') {
+            $left[$c['field']] = true;
+        }
+    }
+    $cs = array_values(array_filter($rest, function ($c) use ($left) {
+        return $c['op'] !== 'field' || isset($left[$c['field']]);
+    }));
+    $whole = [];
+    foreach ($cs as $c) {
+        if ($c['op'] === 'field') {
+            $whole[$c['field']] = $c;
+        }
+    }
+    $out = '';
+    $drawn = [];
+    foreach ($cs as $c) {
+        $f = $c['field'];
+        if (!isset($whole[$f])) {
+            $out .= $changeLi($c);
+            continue;
+        }
+        if (isset($drawn[$f])) {
+            continue;
+        }
+        $drawn[$f] = true;
+        $ops = [];
+        foreach ($cs as $x) {
+            if ($x['field'] === $f && $x['op'] !== 'field') {
+                $ops[$opWord[$x['op']] ?? $x['op']] = true;
+            }
+        }
+        $view = \RevisionHistory\View\FieldView::build((array) $whole[$f]['before'], (array) $whole[$f]['after']);
+        $out .= '<li class="rh-c rh-op-edited"><span class="rh-opw">' . $s->e(implode(' · ', array_keys($ops))) . '</span>'
+            . '<span class="rh-f">' . $s->e($s->fieldLabel((string) $f)) . '</span>'
+            . '<span class="rh-v">' . $s->fieldView($view, (string) $f) . '</span></li>';
+    }
+    if ($exact) {
+        $fields = [];
+        $types = [];
+        foreach ($exact as $c) {
+            $label = $s->fieldLabel((string) $c['field']);
+            $fields[$label] = ($fields[$label] ?? 0) + 1;
+            $types[(string) ($c['after']['type'] ?? '')] = true;
+        }
+        $where = [];
+        foreach ($fields as $label => $n) {
+            $where[] = $label . ($n > 1 ? ' (' . $n . ')' : '');
+        }
+        $n = count($exact);
+        $out .= '<li class="rh-c rh-op-edited rh-exact"><span class="rh-opw">Edited</span>'
+            . '<span class="rh-f">Data type</span>'
+            . '<span class="rh-v">' . $n . ' link' . ($n === 1 ? ' saved with its' : 's saved with their') . ' exact data type'
+            . ' <span class="rh-what">resource → ' . $s->e(implode(' · ', array_keys($types))) . '</span>'
+            . '<div class="rh-exact-f">' . $s->e(implode(' · ', $where)) . '</div></span></li>';
+    }
+    return $out;
+};
+
+// "120 items", "3 media", "1 item set": Omeka's own words for what they are.
+$count = function (int $n, string $kind) use ($s) {
+    $w = $s->kindWord($kind);
+    return $n . ' ' . ($kind === 'media' || $n === 1 ? $w : $w . 's');
+};
+
+// Putting a save back is for global administrators only (the ACL), and asks first.
+$canRestore = $this->userIsAllowed(\RevisionHistory\Controller\Admin\IndexController::class, 'restore');
+
+$day = null;
+?>
+<?php if (!$events): ?>
+<p class="rh-empty">Nothing in the history matches this.</p>
+<?php endif; ?>
+
+<?php foreach ($events as $e):
+    $when = $s->local($e['happened_at']);
+    $d = $when->format('Y-m-d');
+    if ($d !== $day):
+        if ($day !== null) echo '</div>';
+        $day = $d; ?>
+<h3 class="rh-day"><?= $s->e($when->format('l j F Y')) ?></h3>
+<div class="rh-daylist">
+<?php endif;
+
+    $rid = (int) $e['resource_id'];
+    // Entries that are not about an item, a media or an item set (Vocab Sync's own
+    // record) carry no resource id to look a title up by.
+    $isResource = in_array($e['resource_kind'], ['item', 'media', 'item_set'], true);
+    $t = $isResource ? $s->titleOf($rid) : ['title' => null, 'gone' => false];
+    $title = $isResource ? $s->nameOf($rid, (string) ($e['title'] ?? '')) : (string) ($e['title'] ?? '');
+    $untitledNow = $isResource && !$t['gone'] && ($t['name'] ?? '') === '' && ($t['title'] === null || $t['title'] === '');
+    $exists = !$t['gone'];
+    $changes = $e['changes'];
+    $shown = $changes;
+    $rest = [];
+    if ($e['action'] === 'edited' && isset($wantOps[$what])) {
+        // Which fields have a line of the kind being asked for; the whole of such a
+        // field belongs with them, not in the rest.
+        $want = [];
+        foreach ($changes as $c) {
+            if ($c['op'] !== 'field' && in_array($c['op'], $wantOps[$what], true)) $want[$c['field']] = true;
+        }
+        $shown = [];
+        foreach ($changes as $c) {
+            $keep = $c['op'] === 'field' ? isset($want[$c['field']]) : in_array($c['op'], $wantOps[$what], true);
+            if ($keep) $shown[] = $c; else $rest[] = $c;
+        }
+    }
+    $who = $e['user_name'] !== '' ? $e['user_name'] : ($e['user_id'] ? 'account #' . (int) $e['user_id'] : 'no one signed in');
+?>
+<div class="rh-ev rh-ev-<?= $s->e($e['action']) ?>" id="rh-<?= (int) $e['id'] ?>">
+    <div class="rh-head">
+        <span class="rh-time" data-utc="<?= $s->e(substr($e['happened_at'], 0, 19)) ?>Z" title="<?= $s->e($when->format('Y-m-d H:i:s') . ' ' . $s->tz()) ?>"><?= $s->e($when->format('H:i')) ?></span>
+        <span class="rh-who"<?= $e['user_email'] !== '' ? ' title="' . $s->e($e['user_email']) . '"' : '' ?>><?= $s->e($who) ?></span>
+        <span class="rh-verb"><?= $s->e($s->verb($e['action'])) ?></span>
+        <?php $isRun = !empty($e['run']); $runN = $isRun ? (int) $e['run_total'] + 1 : 0; $isTouch = $isRun && !empty($e['run_touch']); ?>
+        <?php if ($isRun && !$isTouch): ?>
+        <span class="rh-kind"><?= $s->e($count($runN, $e['resource_kind'])) ?></span>
+        <?php elseif ($showItem || $e['resource_kind'] !== 'item'): ?>
+        <span class="rh-kind"><?= $s->e($s->kindWord($e['resource_kind'])) ?></span>
+        <span class="rh-res">
+            <?php if (!$isResource): ?>
+            <?php if ($e['item_id']): $ofName = $s->nameOf((int) $e['item_id'], (string) ($e['title'] ?? '')); ?>
+            <a href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => (int) $e['item_id']])) ?>"><?= $s->e($ofName) ?></a>
+            <?php elseif (($e['title'] ?? '') !== ''): ?><?= $s->e($e['title']) ?><?php endif; ?>
+            <?php elseif ($exists): ?>
+            <a href="<?= $s->e($adminUrl($e['resource_kind'], $rid)) ?>"><?= $s->e($title) ?></a>
+            <?php else: ?>
+            <span class="rh-title-gone"><?= $s->e($title) ?></span>
+            <?php endif; ?>
+            <?php if ($e['accession'] !== '' && $e['accession'] !== $title): ?><span class="rh-acc"><?= $s->e($e['accession']) ?></span><?php endif; ?>
+            <?php if (!$exists): ?><span class="rh-gone">no longer exists</span><?php endif; ?>
+            <?php if ($untitledNow && $title !== '[Untitled]'): ?><span class="rh-id">has no title now</span><?php endif; ?>
+        </span>
+        <?php endif; ?>
+        <?php if (!$isRun && in_array($e['resource_kind'], ['media', 'ValueAnnotation'], true) && $e['item_id'] && $showItem):
+            $itName = $s->nameOf((int) $e['item_id']); ?>
+        <span class="rh-of">of item <a href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => (int) $e['item_id']])) ?>"><?= $s->e($itName) ?></a></span>
+        <?php endif; ?>
+    </div>
+
+    <?php
+    // What Batch Values says this run did, in its own words. The tables only keep what
+    // the save left behind, which for some work (turning a picture) does not say what
+    // was asked for.
+    if (preg_match('/^bv:(\d+)$/', (string) ($e['run_key'] ?? ''), $bvm)) {
+        $bvLines = $s->batchRun((int) $bvm[1]);
+        if ($bvLines) {
+            echo '<p class="rh-bv">';
+            $first = true;
+            foreach ($bvLines as $line) {
+                echo $first ? '' : ' <span class="rh-bv-sep">·</span> ';
+                if ($line['label'] !== '') {
+                    echo '<span class="rh-bv-l">' . $s->e($line['label']) . '</span> ';
+                }
+                echo $s->e($line['text']);
+                $first = false;
+            }
+            echo '</p>';
+        }
+    }
+    ?>
+
+    <?php if (!$isResource): ?>
+        <?php if ($e['note']): ?><p class="rh-notehere"><?= $s->e($e['note']) ?></p><?php endif; ?>
+        <?php if ($changes && $e['action'] === 'edited'): ?>
+        <ul class="rh-changes"><?= $lines($changes) ?></ul>
+        <?php elseif ($changes): $n = count($changes); ?>
+        <details class="rh-more">
+            <summary><?= $s->e($e['action'] === 'created' ? 'What it was created with' : 'What it held when it was deleted') ?> · <?= $n ?> field<?= $n === 1 ? '' : 's' ?></summary>
+            <ul class="rh-changes rh-plain"><?php foreach ($changes as $c) echo $changeLi($c); ?></ul>
+        </details>
+        <?php endif; ?>
+    <?php elseif ($isRun && !$isTouch): ?>
+        <ul class="rh-changes">
+        <?php foreach ($e['run_sum'] as $c):
+            $badge = ' <span class="rh-id">' . $s->e($count($c['n'], $e['resource_kind'])) . '</span>';
+            if ($c['values']) {
+                $li = $changeLi($c);
+                echo substr($li, 0, -strlen('</span></li>')) . $badge . '</span></li>';
+            } else {
+                echo '<li class="rh-c rh-op-' . $s->e($c['op']) . '"><span class="rh-opw">' . $s->e($opWord[$c['op']] ?? $c['op']) . '</span>'
+                    . '<span class="rh-f">' . $s->e($s->fieldLabel($c['field'])) . '</span><span class="rh-v">' . $badge . '</span></li>';
+            }
+        endforeach; ?>
+        </ul>
+    <?php elseif ($e['action'] === 'edited'): ?>
+        <?php if ($shown): ?>
+        <ul class="rh-changes"><?= $lines($shown) ?></ul>
+        <?php endif; ?>
+        <?php $restShown = array_values(array_filter($rest, function ($c) { return $c['op'] !== 'field'; })); ?>
+        <?php if ($restShown): ?>
+        <details class="rh-more"><summary><?= count($restShown) ?> other change<?= count($restShown) === 1 ? '' : 's' ?> in the same save</summary>
+            <ul class="rh-changes"><?= $lines($rest) ?></ul>
+        </details>
+        <?php endif; ?>
+        <?php if (!$changes && $e['note']): ?><p class="rh-notehere"><?= $s->e($e['note']) ?></p><?php endif; ?>
+    <?php else:
+        $n = count($changes);
+        $label = $e['action'] === 'created' ? 'What it was created with' : 'What it held when it was deleted'; ?>
+        <?php if ($n): ?>
+        <details class="rh-more"<?= $e['action'] === 'deleted' && !$showItem ? ' open' : '' ?>>
+            <summary><?= $s->e($label) ?> · <?= $n ?> value<?= $n === 1 ? '' : 's' ?></summary>
+            <ul class="rh-changes rh-plain"><?php foreach ($changes as $c) echo $changeLi($c); ?></ul>
+        </details>
+        <?php elseif ($e['note']): ?>
+        <p class="rh-notehere"><?= $s->e($e['note']) ?></p>
+        <?php endif; ?>
+    <?php endif; ?>
+
+    <?php if (!empty($e['folded'])): ?>
+    <details class="rh-more rh-files">
+        <summary><?php if ($isResource): ?>and <?= count($e['folded']) ?> media <?= $s->e($s->verb($e['action'])) ?> with it<?php else: ?>and <?= count($e['folded']) ?> more thing<?= count($e['folded']) === 1 ? '' : 's' ?> saved at the same time<?php endif; ?></summary>
+        <ul class="rh-changes rh-plain">
+        <?php foreach ($e['folded'] as $m):
+            $mIsResource = in_array($m['resource_kind'], ['item', 'media', 'item_set'], true);
+            $mTitle = $mIsResource ? $s->nameOf((int) $m['resource_id'], (string) ($m['title'] ?? '')) : (string) ($m['title'] ?? '');
+            $mt = $mIsResource ? $s->titleOf((int) $m['resource_id']) : ['gone' => false];
+            if (!$mIsResource):
+                $mOf = (int) ($m['item_id'] ?? 0);
+                if ($mOf) $mTitle = $s->nameOf($mOf, $mTitle); ?>
+            <li class="rh-c"><span class="rh-opw"><?= $s->e(ucfirst($s->verb($m['action']))) ?></span>
+                <span class="rh-f"><?= $s->e($s->kindWord($m['resource_kind'])) ?></span>
+                <span class="rh-v"><?php if ($mOf): ?><a href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => $mOf])) ?>"><?= $s->e($mTitle) ?></a><?php else: ?><?= $s->e($mTitle) ?><?php endif; ?>
+                <?php if ($m['changes']): ?><ul class="rh-changes"><?= $lines($m['changes']) ?></ul><?php endif; ?></span></li>
+            <?php continue; endif; ?>
+            <li class="rh-c"><span class="rh-opw"><?= $s->e(ucfirst($s->verb($m['action']))) ?></span>
+                <span class="rh-f">Media</span>
+                <span class="rh-v"><?php if (!$mt['gone']): ?><a href="<?= $s->e($adminUrl('media', (int) $m['resource_id'])) ?>"><?= $s->e($mTitle) ?></a><?php else: ?><?= $s->e($mTitle) ?> <span class="rh-gone">no longer exists</span><?php endif; ?>
+                <?php if ($m['changes']): ?><span class="rh-id"><?= count($m['changes']) ?> value<?= count($m['changes']) === 1 ? '' : 's' ?></span><?php endif; ?></span></li>
+        <?php endforeach; ?>
+        </ul>
+    </details>
+    <?php endif; ?>
+
+    <?php if ($isTouch): ?>
+    <details class="rh-more rh-files">
+        <summary>and <?= (int) $e['run_total'] ?> more time<?= (int) $e['run_total'] === 1 ? '' : 's' ?> on this day</summary>
+        <ul class="rh-changes rh-plain">
+        <?php foreach ($e['run'] as $m): ?>
+            <li class="rh-c"><span class="rh-opw"><?= $s->e($s->local($m['happened_at'])->format('H:i')) ?></span>
+                <span class="rh-v"><?= $s->e($s->via($m)) ?></span></li>
+        <?php endforeach; ?>
+        </ul>
+    </details>
+    <?php elseif ($isRun): ?>
+    <details class="rh-more rh-files">
+        <summary><?= $s->e($count($runN, $e['resource_kind'])) ?></summary>
+        <ul class="rh-changes rh-plain rh-run-list">
+        <?php foreach (array_merge([$e], $e['run']) as $m):
+            $mIsResource = in_array($m['resource_kind'], ['item', 'media', 'item_set'], true);
+            $mId = (int) $m['resource_id'];
+            $mTitle = $mIsResource ? $s->nameOf($mId, (string) ($m['title'] ?? '')) : (string) ($m['title'] ?? ''); ?>
+            <li class="rh-c"><span class="rh-opw"><?= $s->e(ucfirst($s->verb($m['action']))) ?></span>
+                <span class="rh-f"><?= $s->e(ucfirst($s->kindWord($m['resource_kind']))) ?></span>
+                <span class="rh-v"><?php if ($mIsResource): ?><a href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => $m['resource_kind'] === 'media' && $m['item_id'] ? (int) $m['item_id'] : $mId])) ?>"><?= $s->e($mTitle) ?></a><?php else: ?><?= $s->e($mTitle) ?><?php endif; ?>
+                <?php if ($m['accession'] !== '' && $m['accession'] !== $mTitle): ?><span class="rh-acc"><?= $s->e($m['accession']) ?></span><?php endif; ?>
+                <?php if ($m['changes']): ?><ul class="rh-changes"><?= $lines($m['changes']) ?></ul><?php endif; ?></span></li>
+        <?php endforeach; ?>
+        </ul>
+    </details>
+    <?php endif; ?>
+
+    <div class="rh-foot">
+        <span class="rh-via"<?= $e['via_detail'] !== '' && $e['via'] !== 'api' ? ' title="' . $s->e($e['via_detail']) . '"' : '' ?>><?= $s->e($s->via($e)) ?><?php
+        // Batch Values' own page for this run, named the way Batch Values names it: #5.
+        if (preg_match('/^bv:(\d+)$/', (string) ($e['run_key'] ?? ''), $rm)) {
+            try {
+                echo ' <a class="rh-run" href="' . $s->e($this->url('admin/batch-values', ['action' => 'show', 'id' => (int) $rm[1]])) . '">#' . (int) $rm[1] . '</a>';
+            } catch (\Throwable $ex) {
+                echo ' #' . (int) $rm[1];
+            }
+        } ?></span>
+        <?php if ($e['note'] && $changes && $isResource): ?><span class="rh-note-foot"><?= $s->e($e['note']) ?></span><?php endif; ?>
+        <?php if (!$isRun && $changes && \RevisionHistory\Restore\Restorer::can($e) && $canRestore): ?>
+        <a class="rh-restore-link" href="<?= $s->e($this->url('admin/revision-history', ['action' => 'restore', 'id' => (int) $e['id']])) ?>"><?= $s->e($this->translate('Restore')) ?></a>
+        <?php elseif (!$isRun && \RevisionHistory\Restore\Reviver::can($e) && $canRestore && !$exists): ?>
+        <a class="rh-restore-link" href="<?= $s->e($this->url('admin/revision-history', ['action' => 'revive', 'id' => (int) $e['id']])) ?>"><?= $s->e($this->translate('Restore')) ?></a>
+        <?php endif; ?>
+        <?php if ($showItem && $isResource && !$isRun): ?>
+        <a class="rh-hist" href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => $e['resource_kind'] === 'media' && $e['item_id'] ? (int) $e['item_id'] : $rid])) ?>">its whole history</a>
+        <?php endif; ?>
+    </div>
+</div>
+<?php endforeach; ?>
+<?php if ($day !== null) echo '</div>'; ?>

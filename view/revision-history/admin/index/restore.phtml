@@ -1,0 +1,74 @@
+<?php
+/**
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var array $event the entry, with its changes
+ * @var array $plan what putting it back would do (Planner::plan)
+ * @var array $unsure values that could not be sent back exactly
+ * @var int $later how many saves of this resource came after it
+ * @var string $back the resource's history page
+ * @var string $csrf
+ */
+$this->headLink()->appendStylesheet($this->assetUrl('css/history.css', 'RevisionHistory'));
+$this->htmlElement('body')->appendAttribute('class', 'rh-page');
+$s = $this->revisionHistoryShow();
+$e = [$s, 'e'];
+$s->prepare([$event]);
+$rid = (int) $event['resource_id'];
+$title = $s->nameOf($rid, (string) ($event['title'] ?? ''));
+$when = $s->local($event['happened_at']);
+$who = $event['user_name'] !== '' ? $event['user_name'] : ($event['user_id'] ? 'account #' . (int) $event['user_id'] : 'no one signed in');
+$opWord = ['added' => 'Added', 'removed' => 'Removed', 'edited' => 'Edited', 'order' => 'Reordered'];
+$li = function (array $c) use ($s, $opWord) {
+    $op = $c['op'];
+    $body = in_array($op, ['edited', 'order'], true) ? $s->edit($c) : $s->value($op === 'added' ? $c['after'] : $c['before'], $c['field']);
+    return '<li class="rh-c rh-op-' . $s->e($op) . '"><span class="rh-opw">' . $s->e($opWord[$op] ?? $op) . '</span>'
+        . '<span class="rh-f">' . $s->e($s->fieldLabel($c['field'])) . '</span>'
+        . '<span class="rh-v">' . $body . $s->place($c) . ($c['ok'] ? '' : ' <span class="rh-id">' . $s->e($c['why']) . '</span>') . '</span></li>';
+};
+$ok = array_values(array_filter($plan['rows'], function ($r) { return $r['ok']; }));
+$not = array_values(array_filter($plan['rows'], function ($r) { return !$r['ok']; }));
+
+echo $this->pageTitle($title, 1, 'Restore');
+?>
+<div class="rh-wrap rh-copy">
+<p class="rh-crumbs"><a href="<?= $e($back) ?>">← <?= $e($title) ?></a></p>
+
+<div class="rh-ev rh-ev-edited">
+    <div class="rh-head">
+        <span class="rh-time"><?= $e($when->format('j F Y H:i')) ?></span>
+        <span class="rh-who"><?= $e($who) ?></span>
+        <span class="rh-verb"><?= $e($s->verb($event['action'])) ?></span>
+        <span class="rh-kind"><?= $e($s->kindWord($event['resource_kind'])) ?></span>
+        <span class="rh-res"><?= $e($title) ?><?php if ($event['accession'] !== '' && $event['accession'] !== $title): ?> <span class="rh-acc"><?= $e($event['accession']) ?></span><?php endif; ?></span>
+    </div>
+    <div class="rh-foot"><span class="rh-via"><?= $e($s->via($event)) ?></span></div>
+</div>
+
+<p>Putting this save back does the opposite of each change below, through Omeka, as a new save made by you. It shows in the history like any other.</p>
+<?php if ($later): ?>
+<p class="rh-warn"><?= (int) $later ?> save<?= $later === 1 ? ' was' : 's were' ?> made to it after this one. What they changed is kept: a value that is no longer what this save left is not touched.</p>
+<?php endif; ?>
+
+<?php if ($ok): ?>
+<h3>Restore · <?= count($ok) ?></h3>
+<ul class="rh-changes"><?php foreach ($ok as $c) echo $li($c); ?></ul>
+<?php endif; ?>
+<?php if ($not): ?>
+<h3>Not put back · <?= count($not) ?></h3>
+<ul class="rh-changes"><?php foreach ($not as $c) echo $li($c); ?></ul>
+<?php endif; ?>
+
+<?php if ($unsure): ?>
+<p class="rh-warn">Some Vocab Sync values cannot be sent back exactly (two terms answer to the same words). Nothing will be put back; restore this item by hand.</p>
+<?php elseif ($ok): ?>
+<form method="post" class="rh-restore">
+    <input type="hidden" name="revision_history_csrf" value="<?= $e($csrf) ?>">
+    <p><label><input type="checkbox" name="revision_history_sure" value="1" required> <?= $e($this->translate('Are you sure?')) ?></label></p>
+    <p><button type="submit"><?= $e($this->translate('Restore')) ?></button>
+       <a class="button" href="<?= $e($back) ?>"><?= $e($this->translate('Cancel')) ?></a></p>
+</form>
+<?php else: ?>
+<p>Nothing of this save can be put back.</p>
+<p><a class="button" href="<?= $e($back) ?>"><?= $e($this->translate('Cancel')) ?></a></p>
+<?php endif; ?>
+</div>

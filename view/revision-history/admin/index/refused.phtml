@@ -1,0 +1,114 @@
+<?php
+/**
+ * Saves the admin pages refused before they reached anything.
+ *
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var array $rows
+ * @var bool $mine whether this person is shown only their own
+ */
+$s = $this->revisionHistoryShow();
+$e = [$s, 'e'];
+$this->headLink()->appendStylesheet($this->assetUrl('css/history.css', 'RevisionHistory'));
+$R = \RevisionHistory\Watch\Refused::class;
+
+$when = function ($at) use ($s) {
+    try {
+        $d = new DateTime(substr((string) $at, 0, 19), new DateTimeZone('UTC'));
+        $d->setTimezone(new DateTimeZone($s->tz()));
+        return $d->format('Y-m-d H:i:s');
+    } catch (Throwable $ex) {
+        return (string) $at;
+    }
+};
+?>
+<?= $this->pageTitle('Saves that were refused', 1, 'Revision History') ?>
+<div class="rh-wrap rh-copy">
+<p class="rh-crumbs"><a href="<?= $e($this->url('admin/revision-history')) ?>">← Revision History</a></p>
+
+<p class="rh-refused-lead">
+    Omeka puts a token in every admin form and checks it when the form comes back. When that
+    check fails the person is shown <em>Invalid or missing CSRF token</em>, the save never
+    happens, and nothing else would say it was ever tried. Each one is written down here as it
+    arrives, with the state of that moment and what was being saved, so that pressing Save again
+    is not the only thing anybody can do about it.
+</p>
+
+<?php
+// What each refused save was carrying, read once so the names of fields and of linked
+// items are looked up in one go, the same way the history page does it.
+$saving = [];
+$prepare = [];
+foreach ($rows as $row) {
+    $kept = $row['kept'] ? json_decode((string) $row['kept'], true) : null;
+    $values = (is_array($kept) && isset($kept['values_json']))
+        ? \RevisionHistory\Capture\FormState::values((string) $kept['values_json'])[0]
+        : [];
+    $saving[(int) $row['id']] = $values;
+    $changes = [];
+    foreach ($values as $field => $list) {
+        foreach ($list as $one) {
+            $changes[] = ['op' => 'added', 'field' => (string) $field, 'property_id' => null,
+                'before' => null, 'after' => $one];
+        }
+    }
+    if ($changes) {
+        $prepare[] = ['resource_kind' => 'item', 'resource_id' => 0, 'item_id' => null, 'changes' => $changes];
+    }
+}
+if ($prepare) {
+    $s->prepare($prepare);
+}
+?>
+<?php if (!$rows): ?>
+<p class="rh-refused-lead">No save has been refused since this was installed.</p>
+<?php else: ?>
+<?php if ($mine): ?><p class="rh-refused-lead">These are your own. A global admin sees everybody's.</p><?php endif; ?>
+
+<ul class="rh-changes rh-refused">
+<?php foreach ($rows as $row):
+    $age = $R::age($row);
+    $values = $saving[(int) $row['id']] ?? [];
+    ?>
+    <li class="rh-c rh-refused-one">
+        <span class="rh-opw"><?= $e($when($row['at'])) ?></span>
+        <span class="rh-f"><?= $e($row['user_name'] !== '' ? $row['user_name'] : 'no one signed in') ?></span>
+        <span class="rh-v">
+            <span class="rh-refused-why"><?= $e($R::reason($row)) ?></span>
+            <div class="rh-refused-where"><?= $e($row['path']) ?></div>
+            <div class="rh-refused-facts">
+                <span>token sent <?= $row['token_sent'] ? 'yes' : 'no' ?></span>
+                <span>tokens in this session <?= (int) $row['tokens'] ?><?= (int) $row['tokens_most'] > (int) $row['tokens'] ? ' (once ' . (int) $row['tokens_most'] . ')' : '' ?></span>
+                <span>session <?= $e($row['session_ref']) ?><?= $age === null ? '' : ', ' . (int) $age . 's old' ?></span>
+                <span>fields received <?= (int) $row['vars'] ?></span>
+                <span>bytes sent <?= (int) $row['bytes'] ?></span>
+            </div>
+            <div class="rh-refused-facts"><span><?= $e($row['limits']) ?></span></div>
+            <?php if ($values): ?>
+            <details class="rh-more">
+                <summary>What was being saved · <?= count($values) ?> field<?= count($values) === 1 ? '' : 's' ?></summary>
+                <ul class="rh-changes rh-plain">
+                    <?php foreach ($values as $field => $list): ?>
+                    <li class="rh-c">
+                        <span class="rh-opw"></span>
+                        <span class="rh-f"><?= $e($s->fieldLabel((string) $field)) ?></span>
+                        <span class="rh-v"><?php foreach ($list as $one) {
+                            echo '<div>' . $s->value($one, (string) $field) . '</div>';
+                        } ?></span>
+                    </li>
+                    <?php endforeach; ?>
+                </ul>
+            </details>
+            <?php elseif ($row['kept']): ?>
+            <details class="rh-more">
+                <summary>What was being saved</summary>
+                <pre class="rh-raw"><?= $e($row['kept']) ?></pre>
+            </details>
+            <?php else: ?>
+            <div class="rh-refused-facts"><span>Nothing of the form reached this server, so there was nothing to keep.</span></div>
+            <?php endif; ?>
+        </span>
+    </li>
+<?php endforeach; ?>
+</ul>
+<?php endif; ?>
+</div>

@@ -1,0 +1,79 @@
+<?php
+/**
+ * What this save would change — the body of the dialog the admin form shows first.
+ *
+ * Rendered by the same helper the history page uses, from the same Diff, so what is
+ * shown here and what is written down afterwards are the same words.
+ *
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var string $kind item|media|item_set
+ * @var int $id
+ * @var bool $making whether the form is making a resource rather than changing one
+ * @var array $before the resource as it is now
+ * @var array $after the resource as the form would leave it
+ * @var array $changes
+ * @var bool $leaving whether the question is "before you leave" rather than "before you save"
+ */
+$s = $this->revisionHistoryShow();
+$e = [$s, 'e'];
+$s->prepare([[
+    'resource_kind' => $kind,
+    'resource_id' => (int) $id,
+    'item_id' => null,
+    'changes' => $changes,
+]]);
+
+$opWord = ['added' => 'Added', 'removed' => 'Removed', 'edited' => 'Edited', 'order' => 'Reordered'];
+$tally = ['added' => 0, 'removed' => 0, 'edited' => 0, 'order' => 0];
+foreach ($changes as $c) {
+    if (isset($tally[$c['op']])) {
+        $tally[$c['op']]++;
+    }
+}
+
+// One block per field, in the order the changes came in.
+$fields = [];
+foreach ($changes as $c) {
+    $fields[$c['field']][] = $c;
+}
+$isTerm = function (string $f) {
+    return strpos($f, ':') !== false && strpos($f, 'o:') !== 0 && strpos($f, 'o-module-') !== 0;
+};
+?>
+<?php if (!$changes): ?>
+<p class="rhc-empty"><?= $e($this->translate('Nothing has been changed.')) ?></p>
+<?php else: ?>
+<div class="rhc-tally">
+    <?php if ($tally['removed']): ?><span class="rhc-rm"><?= (int) $tally['removed'] ?> removed</span><?php endif; ?>
+    <?php if ($tally['edited']): ?><span class="rhc-ed"><?= (int) $tally['edited'] ?> edited</span><?php endif; ?>
+    <?php if ($tally['added']): ?><span class="rhc-ad"><?= (int) $tally['added'] ?> added</span><?php endif; ?>
+    <?php if ($tally['order']): ?><span class="rhc-or"><?= (int) $tally['order'] ?> reordered</span><?php endif; ?>
+</div>
+<ul class="rh-changes rhc-list">
+<?php foreach ($fields as $field => $rows):
+    $old = $before['values'][$field] ?? [];
+    $new = $after['values'][$field] ?? [];
+    $whole = $isTerm((string) $field) && (count($old) > 1 || count($new) > 1);
+    if ($whole):
+        $ops = array_values(array_unique(array_map(function ($c) use ($opWord) { return $opWord[$c['op']] ?? $c['op']; }, $rows)));
+        ?>
+    <li class="rh-c rh-op-<?= $e($rows[0]['op']) ?>">
+        <span class="rh-opw"><?= $e(implode(' · ', $ops)) ?></span>
+        <span class="rh-f"><?= $e($s->fieldLabel((string) $field)) ?></span>
+        <span class="rh-v"><?= $s->fieldView(\RevisionHistory\View\FieldView::build($old, $new), (string) $field, 'Now', $leaving ? 'If you save' : 'After this save') ?></span>
+    </li>
+    <?php else:
+        foreach ($rows as $c):
+            $body = in_array($c['op'], ['edited', 'order'], true)
+                ? $s->edit($c)
+                : $s->value($c['op'] === 'added' ? $c['after'] : $c['before'], (string) $c['field']);
+            ?>
+    <li class="rh-c rh-op-<?= $e($c['op']) ?>">
+        <span class="rh-opw"><?= $e($opWord[$c['op']] ?? $c['op']) ?></span>
+        <span class="rh-f"><?= $e($s->fieldLabel((string) $c['field'])) ?></span>
+        <span class="rh-v"><?= $body ?><?= $s->place($c) ?></span>
+    </li>
+    <?php endforeach; endif; ?>
+<?php endforeach; ?>
+</ul>
+<?php endif; ?>

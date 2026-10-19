@@ -1,0 +1,33 @@
+<?php
+/**
+ * The last few things that happened to this resource, in the sidebar of its admin page.
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var \Omeka\Api\Representation\AbstractResourceEntityRepresentation $resource
+ * @var array $page
+ */
+$this->headLink()->appendStylesheet($this->assetUrl('css/history.css', 'RevisionHistory'));
+$id = (int) $resource->id();
+$s = $this->revisionHistoryShow();
+$s->prepare($page['events']);
+?>
+<div class="meta-group rh-side">
+    <h4>History</h4>
+    <?php if (!$page['events']): ?>
+    <div class="value">Nothing recorded yet.</div>
+    <?php endif; ?>
+    <?php foreach ($page['events'] as $ev):
+        $when = $s->local($ev['happened_at']);
+        $n = [];
+        if ($ev['action'] === 'edited') {
+            if ($ev['n_added']) $n[] = $ev['n_added'] . ' added';
+            if ($ev['n_removed']) $n[] = $ev['n_removed'] . ' removed';
+            if ($ev['n_edited']) $n[] = $ev['n_edited'] . ' edited';
+        } ?>
+    <div class="value">
+        <span class="rh-side-when"><?= $s->e($when->format('j M Y H:i')) ?></span><br>
+        <?= $s->e($ev['user_name'] !== '' ? $ev['user_name'] : 'no one signed in') ?>
+        <?= $s->e($s->verb($ev['action'])) ?><?= (int) $ev['resource_id'] !== $id ? ' media' : '' ?><?= $n ? ' — ' . $s->e(implode(', ', $n)) : '' ?>
+    </div>
+    <?php endforeach; ?>
+    <div class="value"><a href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => $resource->resourceName() === 'media' && $resource->item() ? $resource->item()->id() : $id])) ?>">Whole history →</a></div>
+</div>

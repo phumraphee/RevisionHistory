@@ -1,0 +1,163 @@
+<?php
+/**
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var array $filters
+ * @var array $page
+ * @var array $people
+ * @var string[] $fields
+ * @var array $summary
+ * @var \Omeka\Settings\Settings $settings
+ * @var bool $isAdmin
+ */
+$this->headLink()->appendStylesheet($this->assetUrl('css/history.css', 'RevisionHistory'));
+$this->htmlElement('body')->appendAttribute('class', 'rh-page');
+$s = $this->revisionHistoryShow();
+$e = [$s, 'e'];
+$what = $page['what'];
+
+$link = function (array $change) use ($filters) {
+    $q = array_merge($filters, $change);
+    unset($q['after']);
+    foreach ($q as $k => $v) {
+        if ($v === null || $v === '') unset($q[$k]);
+    }
+    return $this->url('admin/revision-history', [], ['query' => $q]);
+};
+
+$questions = [
+    'all' => 'Everything',
+    'created' => 'Created',
+    'deleted' => 'Deleted',
+    'added' => 'Values added',
+    'removed' => 'Values removed',
+    'edited' => 'Values edited',
+];
+
+// The Field menu: grouped by vocabulary, as Omeka's own property menus are.
+[$fieldOwn, $fieldGroups, $fieldOrphans] = $s->fieldMenu($fields);
+$fieldName = $fieldOwn + $fieldOrphans;
+foreach ($fieldGroups as $g) $fieldName += $g['options'];
+$fieldOption = function (string $term, string $label) use ($e, $filters) {
+    return '<option value="' . $e($term) . '" title="' . $e($term) . '"'
+        . (($filters['field'] ?? '') === $term ? ' selected' : '') . '>' . $e($label) . '</option>';
+};
+
+$peopleName = [];
+foreach ($people as $p) {
+    $key = $p['user_id'] === null ? 'nobody' : (string) (int) $p['user_id'];
+    $peopleName[$key] = $p['user_id'] === null ? 'No one signed in' : ($p['name'] !== '' ? $p['name'] : 'account #' . (int) $p['user_id']);
+}
+
+$active = [];
+if (!empty($filters['who'])) $active['who'] = 'By ' . ($peopleName[$filters['who']] ?? $filters['who']);
+if (!empty($filters['from'])) $active['from'] = 'From ' . $filters['from'];
+if (!empty($filters['to'])) $active['to'] = 'Until ' . $filters['to'];
+if (!empty($filters['item'])) $active['item'] = 'Item: ' . $filters['item'];
+if (!empty($filters['field'])) $active['field'] = 'Field: ' . ($fieldName[$filters['field']] ?? $filters['field']);
+if (!empty($filters['kind'])) $active['kind'] = ['item' => 'Items only', 'media' => 'Media only', 'item_set' => 'Item sets only', 'vocabsync' => 'Vocab Sync only', 'resources' => 'Items, media and item sets', 'around' => 'Everything else'][$filters['kind']] ?? $filters['kind'];
+
+$failures = (int) $settings->get('revision_history_failures', 0);
+$from = (string) $settings->get('revision_history_from', '');
+
+echo $this->pageTitle('Revision History', 1);
+?>
+<div class="rh-wrap">
+
+<?php if ($failures && $isAdmin):
+    $last = (array) $settings->get('revision_history_failure_last', []); ?>
+<div class="rh-warn">
+    <strong><?= $failures ?> change<?= $failures === 1 ? ' was' : 's were' ?> saved but not written into this history.</strong>
+    The items themselves were saved. Last time: <?= $e($last[0] ?? '') ?> UTC — <?= $e($last[2] ?? '') ?>.
+    The full message is in the Log module.
+</div>
+<?php endif; ?>
+
+<nav class="rh-questions" aria-label="What to show">
+<?php foreach ($questions as $key => $label): ?>
+    <a class="rh-q<?= $what === $key ? ' is-on' : '' ?>" href="<?= $e($link(['what' => $key === 'all' ? null : $key])) ?>"<?= $what === $key ? ' aria-current="true"' : '' ?>><?= $e($label) ?></a>
+<?php endforeach; ?>
+</nav>
+
+<form class="rh-filters" method="get" action="<?= $e($this->url('admin/revision-history')) ?>">
+    <?php if ($what !== 'all'): ?><input type="hidden" name="what" value="<?= $e($what) ?>"><?php endif; ?>
+    <label><span>Who</span>
+        <select name="who">
+            <option value="">Anyone</option>
+            <?php foreach ($peopleName as $key => $name): ?>
+            <option value="<?= $e($key) ?>"<?= ($filters['who'] ?? '') === (string) $key ? ' selected' : '' ?>><?= $e($name) ?></option>
+            <?php endforeach; ?>
+        </select>
+    </label>
+    <label><span>Item</span>
+        <input type="text" name="item" value="<?= $e($filters['item'] ?? '') ?>" placeholder="Identifier, title or id">
+    </label>
+    <label><span>Field</span>
+        <select name="field">
+            <option value="">Any field</option>
+            <?php foreach ($fieldOwn as $term => $label) echo $fieldOption($term, $label); ?>
+            <?php foreach ($fieldGroups as $g): ?>
+            <optgroup label="<?= $e($g['label']) ?>">
+                <?php foreach ($g['options'] as $term => $label) echo $fieldOption($term, $label); ?>
+            </optgroup>
+            <?php endforeach; ?>
+            <?php foreach ($fieldOrphans as $term => $label) echo $fieldOption($term, $label); ?>
+        </select>
+    </label>
+    <label><span>From</span><input type="date" name="from" value="<?= $e($filters['from'] ?? '') ?>"></label>
+    <label><span>Until</span><input type="date" name="to" value="<?= $e($filters['to'] ?? '') ?>"></label>
+    <label><span>Of</span>
+        <select name="kind">
+            <option value="">Everything</option>
+            <option value="resources"<?= ($filters['kind'] ?? '') === 'resources' ? ' selected' : '' ?>>Items, media and item sets</option>
+            <option value="around"<?= ($filters['kind'] ?? '') === 'around' ? ' selected' : '' ?>>Everything else — templates, vocabularies, accounts, sites, settings, modules</option>
+            <option value="item"<?= ($filters['kind'] ?? '') === 'item' ? ' selected' : '' ?>>Items only</option>
+            <option value="media"<?= ($filters['kind'] ?? '') === 'media' ? ' selected' : '' ?>>Media only</option>
+            <option value="item_set"<?= ($filters['kind'] ?? '') === 'item_set' ? ' selected' : '' ?>>Item sets only</option>
+            <?php if ($s->hasVocabSync()): ?><option value="vocabsync"<?= ($filters['kind'] ?? '') === 'vocabsync' ? ' selected' : '' ?>>Vocab Sync only</option><?php endif; ?>
+        </select>
+    </label>
+    <div class="rh-go"><button type="submit">Show</button></div>
+</form>
+
+<?php if ($active): ?>
+<div class="rh-active">
+    <?php foreach ($active as $key => $label): ?>
+    <a class="rh-chip" href="<?= $e($link([$key => null])) ?>" title="Remove this filter"><?= $e($label) ?> <span aria-hidden="true">×</span></a>
+    <?php endforeach; ?>
+    <a class="rh-clear" href="<?= $e($link(['who' => null, 'from' => null, 'to' => null, 'item' => null, 'field' => null, 'kind' => null])) ?>">Clear filters</a>
+</div>
+<?php endif; ?>
+
+<?php $exportQuery = $filters; unset($exportQuery['after']); ?>
+<p class="rh-export"><a href="<?= $e($this->url('admin/revision-history', ['action' => 'export'], ['query' => $exportQuery])) ?>">Export what is shown — a file a spreadsheet opens</a></p>
+
+<?php if (!empty($filters['after'])): ?>
+<p class="rh-paging-top"><a href="<?= $e($link(['after' => null])) ?>">← Back to the newest</a></p>
+<?php endif; ?>
+
+<?= $this->partial('revision-history/admin/index/feed', ['events' => $page['events'], 'what' => $what, 'showItem' => true]) ?>
+
+<?php if ($page['next']):
+    $q = array_merge($filters, ['after' => $page['next']]); ?>
+<p class="rh-paging"><a class="button" href="<?= $e($this->url('admin/revision-history', [], ['query' => $q])) ?>">Older →</a></p>
+<?php endif; ?>
+
+<div class="rh-about">
+    <?php if ($from !== ''): ?>
+    <p>Revision History has kept its own record here since <strong><?= $e($s->local($from)->format('j F Y, H:i')) ?></strong>.
+    Anything earlier was copied from History Log or Activity Log, which recorded less — each of those entries says where it came from.</p>
+    <?php endif; ?>
+    <?php foreach ((array) $settings->get('revision_history_gaps', []) as $gap): ?>
+    <p class="rh-warn">Nothing was recorded from <?= $e($s->local($gap[0])->format('j F Y, H:i')) ?> to <?= $e($s->local($gap[1])->format('j F Y, H:i')) ?> — this module was uninstalled during that time.</p>
+    <?php endforeach; ?>
+    <p>Changes made through Omeka — the admin pages, the API, batch edit, background jobs — are recorded: items, media and item sets,
+    and also resource templates, vocabularies, accounts, sites and pages, settings, and modules installed or removed.
+    A module that writes to the database with its own SQL, bypassing Omeka, is not heard as it happens.
+    <?php if ($s->hasVocabSync()): ?>Vocab Sync keeps its own record of what is done in it; those entries are read in here as well, each saying it came from there.<?php endif; ?></p>
+    <p><a href="<?= $e($this->url('admin/revision-history', ['action' => 'refused'])) ?>">Saves the admin pages refused before they reached anything →</a></p>
+    <?php if ($isAdmin): ?>
+    <p><a href="<?= $e($this->url('admin/revision-history', ['action' => 'watch'])) ?>">Check the data itself for changes nothing here accounts for →</a></p>
+    <p><a href="<?= $e($this->url('admin/revision-history', ['action' => 'copy'])) ?>">Copy the history kept by History Log and Activity Log →</a></p>
+    <?php endif; ?>
+</div>
+</div>

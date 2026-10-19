@@ -1,0 +1,91 @@
+<?php
+/**
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var array $plan Reviver::plan()
+ * @var string $back
+ * @var string $csrf
+ */
+$this->headLink()->appendStylesheet($this->assetUrl('css/history.css', 'RevisionHistory'));
+$this->htmlElement('body')->appendAttribute('class', 'rh-page');
+$s = $this->revisionHistoryShow();
+$e = [$s, 'e'];
+$event = $plan['event'];
+$state = $plan['state'];
+$rid = (int) $event['resource_id'];
+$linkRows = [];
+foreach ($plan['links'] as $l) $linkRows = array_merge($linkRows, $l['rows']);
+$s->prepare([$event + ['changes' => $linkRows]]);
+$title = $s->nameOf($rid, (string) ($event['title'] ?? ''));
+$when = $s->local($event['happened_at']);
+$who = $event['user_name'] !== '' ? $event['user_name'] : ($event['user_id'] ? 'account #' . (int) $event['user_id'] : 'no one signed in');
+$nValues = 0;
+foreach ($state['values'] as $list) $nValues += count($list);
+$okMedia = array_values(array_filter($plan['media'], function ($m) { return $m['ok']; }));
+$notMedia = array_values(array_filter($plan['media'], function ($m) { return !$m['ok']; }));
+
+echo $this->pageTitle($title, 1, 'Restore');
+?>
+<div class="rh-wrap rh-copy">
+<p class="rh-crumbs"><a href="<?= $e($back) ?>">← <?= $e($title) ?></a></p>
+
+<div class="rh-ev rh-ev-deleted">
+    <div class="rh-head">
+        <span class="rh-time"><?= $e($when->format('j F Y H:i')) ?></span>
+        <span class="rh-who"><?= $e($who) ?></span>
+        <span class="rh-verb"><?= $e($s->verb('deleted')) ?></span>
+        <span class="rh-kind"><?= $e($s->kindWord($event['resource_kind'])) ?></span>
+        <span class="rh-res"><?= $e($title) ?> <span class="rh-id">#<?= $rid ?></span><?php if ($event['accession'] !== '' && $event['accession'] !== $title): ?> <span class="rh-acc"><?= $e($event['accession']) ?></span><?php endif; ?></span>
+    </div>
+    <div class="rh-foot"><span class="rh-via"><?= $e($s->via($event)) ?></span></div>
+</div>
+
+<p>This makes it again under its own number, #<?= $rid ?>, as a new save made by you. It shows in the history like any other.</p>
+
+<?php if ($plan['stop']): ?>
+<?php foreach ($plan['stop'] as $w): ?><p class="rh-warn"><?= $e($w) ?></p><?php endforeach; ?>
+<?php endif; ?>
+
+<h3>Restore</h3>
+<ul class="rh-changes rh-plain">
+    <?php if ($event['resource_kind'] !== 'media'): ?>
+    <li class="rh-c"><span class="rh-f"><?= $e($this->translate('Values')) ?></span><span class="rh-v"><?= $nValues ?></span></li>
+    <li class="rh-c"><span class="rh-f"><?= $e($this->translate('Visibility')) ?></span><span class="rh-v"><?= ($state['is_public'] ?? 0) ? 'Public' : '<span class="rh-private">Private</span>' ?></span></li>
+    <?php if (!empty($state['item_sets'])): ?><li class="rh-c"><span class="rh-f"><?= $e($this->translate('Item sets')) ?></span><span class="rh-v"><?= count($state['item_sets']) ?></span></li><?php endif; ?>
+    <?php if (!empty($state['sites'])): ?><li class="rh-c"><span class="rh-f"><?= $e($this->translate('Sites')) ?></span><span class="rh-v"><?= count($state['sites']) ?></span></li><?php endif; ?>
+    <?php endif; ?>
+    <?php foreach ($okMedia as $m): ?>
+    <li class="rh-c"><span class="rh-f"><?= $e($this->translate('Media')) ?></span>
+        <span class="rh-v">#<?= (int) $m['id'] ?> <?= $e($m['title']) ?><?php if ($m['source'] !== '' && $m['source'] !== $m['title']): ?> <span class="rh-id"><?= $e($m['source']) ?></span><?php endif; ?></span></li>
+    <?php endforeach; ?>
+    <?php foreach ($plan['links'] as $l): ?>
+    <li class="rh-c"><span class="rh-f"><?= $e($s->fieldLabel($l['rows'][0]['field'])) ?></span>
+        <span class="rh-v">← <?= $e((string) $l['event']['title']) ?> <span class="rh-id">#<?= (int) $l['event']['resource_id'] ?></span></span></li>
+    <?php endforeach; ?>
+</ul>
+
+<?php if ($notMedia || $plan['notes']): ?>
+<h3>Not put back · <?= count($notMedia) + count($plan['notes']) ?></h3>
+<ul class="rh-changes rh-plain">
+    <?php foreach ($notMedia as $m): ?>
+    <li class="rh-c"><span class="rh-f"><?= $e($this->translate('Media')) ?></span>
+        <span class="rh-v">#<?= (int) $m['id'] ?> <?= $e($m['title'] !== '' ? $m['title'] : $m['source']) ?> <span class="rh-id"><?= $e($m['why']) ?></span></span></li>
+    <?php endforeach; ?>
+    <?php foreach ($plan['notes'] as $n): ?>
+    <li class="rh-c"><span class="rh-v"><?= $e($n) ?></span></li>
+    <?php endforeach; ?>
+</ul>
+<?php endif; ?>
+
+<?php $anything = $event['resource_kind'] !== 'media' ? true : (bool) $okMedia; ?>
+<?php if (!$plan['stop'] && $anything): ?>
+<form method="post" class="rh-restore">
+    <input type="hidden" name="revision_history_csrf" value="<?= $e($csrf) ?>">
+    <p><label><input type="checkbox" name="revision_history_sure" value="1" required> <?= $e($this->translate('Are you sure?')) ?></label></p>
+    <p><button type="submit"><?= $e($this->translate('Restore')) ?></button>
+       <a class="button" href="<?= $e($back) ?>"><?= $e($this->translate('Cancel')) ?></a></p>
+</form>
+<?php else: ?>
+<?php if (!$plan['stop']): ?><p>Nothing of this can be put back.</p><?php endif; ?>
+<p><a class="button" href="<?= $e($back) ?>"><?= $e($this->translate('Cancel')) ?></a></p>
+<?php endif; ?>
+</div>

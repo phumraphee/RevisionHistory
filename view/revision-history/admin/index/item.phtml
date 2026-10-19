@@ -1,0 +1,58 @@
+<?php
+/**
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var int $id
+ * @var \Omeka\Api\Representation\AbstractResourceEntityRepresentation|null $resource
+ * @var array $filters
+ * @var array $page
+ */
+$this->headLink()->appendStylesheet($this->assetUrl('css/history.css', 'RevisionHistory'));
+$this->htmlElement('body')->appendAttribute('class', 'rh-page');
+$s = $this->revisionHistoryShow();
+$e = [$s, 'e'];
+$what = $page['what'];
+
+$s->prepare([['changes' => [], 'resource_id' => $id, 'item_id' => 0]]);
+$t = $s->titleOf($id);
+// The title field from the settings, not displayTitle(): some sites keep an identifier in Omeka's own title.
+$title = $s->nameOf($id);
+$acc = (string) ($t['accession'] ?? '');
+if ($title === '[Untitled]' && !$resource && !$page['events']) $title = '#' . $id;
+
+$link = function (array $change) use ($filters, $id) {
+    $q = array_merge($filters, $change);
+    unset($q['after'], $q['resource']);
+    foreach ($q as $k => $v) if ($v === null || $v === '') unset($q[$k]);
+    return $this->url('admin/revision-history', ['action' => 'item', 'id' => $id], ['query' => $q]);
+};
+$questions = ['all' => 'Everything', 'created' => 'Created', 'deleted' => 'Deleted', 'added' => 'Values added', 'removed' => 'Values removed', 'edited' => 'Values edited'];
+
+echo $this->pageTitle($title, 1, 'History of');
+?>
+<div class="rh-wrap">
+<p class="rh-crumbs">
+    <?php if ($acc !== '' && $acc !== $title): ?><span class="rh-acc"><?= $e($acc) ?></span> · <?php endif; ?>
+    <a href="<?= $e($this->url('admin/revision-history')) ?>">← Everything that happened</a>
+    <?php if ($resource): ?> · <a href="<?= $e($resource->adminUrl()) ?>">Open this <?= $e($s->kindWord(['items' => 'item', 'media' => 'media', 'item_sets' => 'item_set'][$resource->resourceName()] ?? 'item')) ?></a><?php endif; ?>
+    <?php if (!$resource && $page['events']): ?> · <span class="rh-gone">this no longer exists — the history below is what is left of it</span><?php endif; ?>
+</p>
+
+<?php $exportQuery = $filters; unset($exportQuery['after']); $exportQuery['resource'] = $id; ?>
+<p class="rh-export"><a href="<?= $e($this->url('admin/revision-history', ['action' => 'export'], ['query' => $exportQuery])) ?>">Export this history — a file a spreadsheet opens</a></p>
+
+<nav class="rh-questions" aria-label="What to show">
+<?php foreach ($questions as $key => $label): ?>
+    <a class="rh-q<?= $what === $key ? ' is-on' : '' ?>" href="<?= $e($link(['what' => $key === 'all' ? null : $key])) ?>"><?= $e($label) ?></a>
+<?php endforeach; ?>
+</nav>
+
+<?php if (!$page['events'] && $what === 'all'): ?>
+<p class="rh-empty">Nothing has been recorded for this yet. The history starts from the first change made after it began to be kept — or from what was copied from other logs.</p>
+<?php else: ?>
+<?= $this->partial('revision-history/admin/index/feed', ['events' => $page['events'], 'what' => $what, 'showItem' => false]) ?>
+<?php endif; ?>
+
+<?php if ($page['next']): ?>
+<p class="rh-paging"><a class="button" href="<?= $e($this->url('admin/revision-history', ['action' => 'item', 'id' => $id], ['query' => array_diff_key($filters, ['resource' => 1]) + ['after' => $page['next']]])) ?>">Older →</a></p>
+<?php endif; ?>
+</div>

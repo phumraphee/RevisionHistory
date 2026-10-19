@@ -1,0 +1,144 @@
+<?php
+/**
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var array $status
+ * @var string $csrf
+ */
+$this->headLink()->appendStylesheet($this->assetUrl('css/history.css', 'RevisionHistory'));
+$s = $this->revisionHistoryShow();
+$e = [$s, 'e'];
+$names = [
+    'history_event' => 'History Log — events',
+    'history_change' => 'History Log — what changed in each',
+    'activity_log_event' => 'Activity Log',
+    'vocab_sync_event' => 'Vocab Sync — its own record of what was done in it',
+];
+$vs = $s->hasVocabSync();
+if (!$vs) {
+    unset($names['vocab_sync_event']);
+}
+$num = function ($n) { return $n === null ? '—' : number_format((int) $n); };
+$last = $status['last'];
+$job = $status['job'] ?? null;
+$prog = $status['progress'] ?? null;
+$running = $job && $job['running'];
+$jobUrl = $job ? $this->url('admin/id', ['controller' => 'job', 'id' => (int) $job['id']]) : '';
+$stageWord = ['copying' => 'copying the rows', 'historylog' => 'making entries from History Log', 'activitylog' => 'making entries from Activity Log'];
+
+echo $this->pageTitle('Copy from other logs', 1, 'Revision History');
+?>
+<div class="rh-wrap rh-copy">
+<?php if ($running): ?>
+<div class="rh-warn">
+    <strong>Copying is running</strong> — <a href="<?= $e($jobUrl) ?>">background job #<?= (int) $job['id'] ?></a>, started <?= $e($job['started'] ? $s->local($job['started'])->format('j F Y, H:i') : '—') ?>.
+    <?php if ($prog): ?>
+    Now <?= $e($stageWord[$prog['stage']] ?? $prog['stage']) ?><?php if (!empty($prog['total'])): ?>: <?= number_format((int) $prog['done']) ?> of <?= number_format((int) $prog['total']) ?><?php endif; ?>
+    (as of <?= $e($s->local($prog['at'])->format('H:i:s')) ?>).
+    <?php endif; ?>
+    The numbers below grow while it works. Reload this page to see how far it has got.
+</div>
+<?php elseif ($job && $job['status'] !== 'completed'): ?>
+<div class="rh-warn">
+    <strong>The last copy did not finish</strong> — <a href="<?= $e($jobUrl) ?>">background job #<?= (int) $job['id'] ?></a>
+    <?php if ($job['vanished']): ?>still says <em><?= $e($job['status']) ?></em>, but it is no longer running: its process was ended without saying why — most often by the server, for running too long or using too much memory.
+    <?php else: ?>ended as <em><?= $e($job['status']) ?></em><?= $job['ended'] ? ' at ' . $e($s->local($job['ended'])->format('j F Y, H:i')) : '' ?>.<?php endif; ?>
+    <?php if ($job['error'] !== ''): ?><br>Reason given: <code><?= $e(mb_substr($job['error'], 0, 600)) ?></code><?php endif; ?>
+    <?php if ($prog): ?><br>It had reached <?= $e($stageWord[$prog['stage']] ?? $prog['stage']) ?><?php if (!empty($prog['total'])): ?>, <?= number_format((int) $prog['done']) ?> of <?= number_format((int) $prog['total']) ?><?php endif; ?>.<?php endif; ?>
+    <br>Pressing the button again carries on safely: what was already copied or made is not done twice.
+</div>
+<?php elseif (!$last && $job): ?>
+<div class="rh-warn">A copy job (#<?= (int) $job['id'] ?>) completed but left no report. Press the button again.</div>
+<?php endif; ?>
+<p class="rh-crumbs"><a href="<?= $e($this->url('admin/revision-history')) ?>">← Revision History</a></p>
+
+<p>History Log, Activity Log<?= $vs ? ' and Vocab Sync' : '' ?> keep their records in tables that are <strong>deleted when the module is uninstalled</strong>.
+This copies those rows, unchanged, into tables of this database (<code>revision_history_copy_…</code>), which stay when any module is uninstalled — this one included.</p>
+
+<?php if ($vs): ?><p>Vocab Sync is different from the other two: every row of its record is made into an entry, whenever it happened.
+It writes that record for what is done in Vocab Sync itself — vocabularies and terms made, renamed, retired, deleted, and the values it moves with its own SQL,
+which Revision History's own recording cannot see. Its newest rows are also read in each time the history page is opened.</p><?php endif; ?>
+
+<p>From the copy of the other two, entries are made for what happened <strong>before <?= $status['from'] ? $e($s->local($status['from'])->format('j F Y, H:i')) : '—' ?></strong>,
+when Revision History started keeping its own history. After that moment its own record is shown, and theirs is kept only as a copy.</p>
+
+<table>
+    <thead><tr><th>Table</th><th>Rows there</th><th>Rows copied</th><th>Not copied yet</th></tr></thead>
+    <tbody>
+    <?php foreach ($status['tables'] as $t): ?>
+    <tr>
+        <td><?= $e($names[$t['source']] ?? $t['source']) ?><br><code><?= $e($t['source']) ?></code> → <code><?= $e($t['copy']) ?></code></td>
+        <td class="n"><?= $t['source_exists'] ? $num($t['source_rows']) : '<span class="rh-gone">table gone</span>' ?></td>
+        <td class="n"><?= $t['copy_exists'] ? $num($t['copy_rows']) : '—' ?></td>
+        <td class="n"><?= !empty($t['restarted']) ? '<span class="rh-gone">a new table — not copied</span>' : $num($t['waiting']) ?></td>
+    </tr>
+    <?php endforeach; ?>
+    </tbody>
+</table>
+
+<table>
+    <thead><tr><th>Entries on the history page</th><th></th></tr></thead>
+    <tbody>
+        <tr><td>Recorded by Revision History</td><td class="n"><?= $num($status['events']['here'] ?? 0) ?></td></tr>
+        <tr><td>Made from History Log's copy</td><td class="n"><?= $num($status['events']['historylog'] ?? 0) ?></td></tr>
+        <tr><td>Made from Activity Log's copy</td><td class="n"><?= $num($status['events']['activitylog'] ?? 0) ?></td></tr>
+        <?php if ($vs): ?><tr><td>Made from Vocab Sync's copy</td><td class="n"><?= $num($status['events']['vocabsync'] ?? 0) ?></td></tr><?php endif; ?>
+    </tbody>
+</table>
+
+<?php if ($last): $r = $last[1]; ?>
+<p>Last copy finished <?= $e($last[0] ? $s->local($last[0])->format('j F Y, H:i') : '—') ?>.
+<?php if (!empty($r['historylog_offset'])): ?>History Log's times were read as <?= $e(sprintf('%+g', $r['historylog_offset'][0] / 3600)) ?> hours from UTC — <?= $e($r['historylog_offset'][1]) ?>.<?php endif; ?>
+<?php if (!empty($r['skipped_user_rows'])): $k = (int) $r['skipped_user_rows']; ?> <?= $k ?> Activity Log <?= $k === 1 ? 'row' : 'rows' ?> about changes to user accounts <?= $k === 1 ? 'was' : 'were' ?> not copied, because Activity Log keeps password hashes in them.<?php endif; ?>
+</p>
+<?php if (!empty($r['historylog_why'])): $w = $r['historylog_why']; ?>
+<table>
+    <thead><tr><th colspan="2">What happened to each History Log event</th></tr></thead>
+    <tbody>
+        <tr><td>Made into an entry</td><td class="n"><?= $num($w['made'] ?? 0) ?></td></tr>
+        <tr><td>Already made by an earlier copy</td><td class="n"><?= $num($w['already'] ?? 0) ?></td></tr>
+        <tr><td>A save in which History Log recorded no change — nothing to show</td><td class="n"><?= $num($w['nothing_in_it'] ?? 0) ?></td></tr>
+        <tr><td>After Revision History started — its own record is shown instead</td><td class="n"><?= $num($w['after_start'] ?? 0) ?></td></tr>
+        <tr><td>Not about an item, a media or an item set</td><td class="n"><?= $num($w['not_item_media_set'] ?? 0) ?></td></tr>
+    </tbody>
+</table>
+<?php endif; ?>
+<?php if (!empty($r['activitylog_why'])): $w = $r['activitylog_why']; ?>
+<table>
+    <thead><tr><th colspan="2">Activity Log rows about items, media and item sets, from before Revision History started</th></tr></thead>
+    <tbody>
+        <tr><td>Made into an entry</td><td class="n"><?= $num($w['made'] ?? 0) ?></td></tr>
+        <tr><td>The same save, recorded by History Log within two minutes — shown from History Log, or not at all when History Log found nothing changed</td><td class="n"><?= $num($w['said_by_history_log'] ?? 0) ?></td></tr>
+        <tr><td>Already shown — an entry for it was there already</td><td class="n"><?= $num($w['said_by_another'] ?? 0) ?></td></tr>
+        <?php if (!empty($w['taken_back'])): ?>
+        <tr><td>Entries made by an earlier copy for saves History Log had recorded — taken back this time</td><td class="n"><?= $num($w['taken_back']) ?></td></tr>
+        <?php endif; ?>
+    </tbody>
+</table>
+<?php if (!empty($r['image_notes_why'])): $w = $r['image_notes_why']; ?>
+<table>
+    <thead><tr><th colspan="2">Image Annotate — read from what each media save sent (Activity Log)</th></tr></thead>
+    <tbody>
+        <tr><td>Saves that changed the annotations — made into an entry</td><td class="n"><?= $num($w['made'] ?? 0) ?></td></tr>
+        <tr><td>…of which the first save seen for that media (what was there before is not known)</td><td class="n"><?= $num($w['first_seen'] ?? 0) ?></td></tr>
+        <tr><td>Saves that sent the annotations unchanged</td><td class="n"><?= $num($w['no_change'] ?? 0) ?></td></tr>
+    </tbody>
+</table>
+<?php endif; ?>
+<p class="rh-about">Everything else Activity Log kept — sign-ins, settings, modules — is in the copy but is not about the five questions this page answers.</p>
+<?php endif; ?>
+<?php endif; ?>
+
+<?php foreach ($status['tables'] as $t): if (!empty($t['restarted'])): ?>
+<p class="rh-warn"><code><?= $e($t['source']) ?></code> is not the table the copy was taken from: the module was uninstalled and installed again, and its numbering started over.
+Its new rows are not copied, so two histories are not mixed under the same numbers. The earlier copy, and the entries made from it, are kept.</p>
+<?php endif; endforeach; ?>
+
+<?php if (!$running): ?>
+<form method="post">
+    <input type="hidden" name="revision_history_csrf" value="<?= $e($csrf) ?>">
+    <button type="submit">Copy what is new</button>
+</form>
+<?php endif; ?>
+<p class="rh-about">Runs as a background job. Safe to press again: rows already copied are not copied twice, and entries already made are not made twice.
+Before uninstalling History Log or Activity Log, press it once more.</p>
+</div>
