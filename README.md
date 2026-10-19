@@ -20,6 +20,8 @@ History Log and Log without replacing them, and can import what Activity Log and
 recorded before it was installed.
 
 - Omeka S 4.x · no other module required
+- Works with [Batch Values](https://github.com/phumraphee/BatchValues) and
+  [Vocab Sync](https://github.com/phumraphee/VocabSync) when they are installed (see below)
 - Licence: GPL-3.0-or-later (see `LICENSE`)
 - Issues and questions: https://github.com/phumraphee/RevisionHistory/issues
 
@@ -78,7 +80,7 @@ the admin form, the REST API, batch edit, background jobs, other modules that us
   before any other module: History Log flushes from inside each media's removal, which would otherwise delete
   the item's values one save early — before the item's own removal event is even reached.
 - A flush that starts inside another flush (History Log does this) records nothing; the outer one does.
-- Ids are kept, words are looked up when the page is drawn: a renamed template or
+- Ids are kept, words are looked up when the page is drawn: a renamed Vocab Sync term, template or
   linked item shows its current name; one that is gone says so.
 - Anything else saved through Omeka (a template, a vocabulary, a site, an account, a setting, a
   module, an API key) is recorded from Doctrine's own change set, field by field, under the name
@@ -113,14 +115,42 @@ comes first.
 
 Omeka has two ways of saying the same thing: `resource`, which does not say what kind of
 thing is linked, and `resource:item`, `resource:itemset` and `resource:media`, which do.
-A module or script that tidies data types may turn the
-first into the second as a resource is saved — so somebody who changed one word can find
+Batch Values, when it is set to (its *Save a link with its exact data type*), or any other module
+or script that tidies data types, may turn the first into the second as a resource is saved — so somebody who changed one word can find
 a dozen lines under their name saying the data type of a link changed, which they never
 asked for. Every one of those is written down row by row like any other change; the card
 gathers them into one line — *3 links saved with their exact data type · resource →
 resource:item* — so they do not bury the change that was made, and a field whose only
 change was that is not drawn as a whole field either. The spreadsheet, the filters and
 Putting a save back see every row as it is.
+
+## With Batch Values and Vocab Sync
+
+Both are optional. Without them, nothing below appears.
+
+**[Batch Values](https://github.com/phumraphee/BatchValues).** A run of Batch Values carries its
+number (`bv:5`) with the request itself, so there is nothing to guess, and the card also shows,
+in Batch Values' own words, what that run says it did, read from its own record (which this module
+only reads). Some work leaves little behind in the tables: turning a picture leaves a new file and
+nothing else, so the record says the file changed and the run's own line says "Turn: Upside down".
+A run that puts another run back says "Cancels #5".
+
+Batch Values also puts buttons in Omeka's add and edit pages that sort the values of a field, or
+move and copy them to another field, there and then. Pressing Save afterwards is an ordinary save:
+on its own the record reads oddly — a value moved is one taken out of one field and another added
+to a second, and nothing says why. So the form carries one field saying what its buttons did
+(`batchvalues_form_actions`), and that sentence is kept with the entry: *With the Batch Values
+buttons on this page: 4 value(s) moved from “Subject” to “Description”*. It is read, not believed:
+the lines of the entry are still what really changed.
+
+**[Vocab Sync](https://github.com/phumraphee/VocabSync).** A Vocab Sync value is kept in the
+table as the term's number and sent back by the form as the term's label, so before anything is
+compared the label is put through the same question Vocab Sync itself asks — the label first (a
+term may be called "1961"), then the number. Without that, every Vocab Sync field of the resource
+would read as changed. Putting a save back sends Vocab Sync values by the term's label when that
+label leads back to the same term, by its number when no label reads like that number, and
+otherwise not at all (the page says so). Vocab Sync's own record of what was done in it (terms
+made, renamed, retired) can be copied in and shown here, and the history page can be filtered to it.
 
 ## Saves that were refused
 
@@ -172,8 +202,8 @@ supported and will keep working; what follows is the whole of it.
 arrived and from where), `note` (one sentence in your own words, shown under the lines),
 `n_added`/`n_removed`/`n_edited`, and:
 
-- `source` — who wrote the entry. `here` is this module; `historylog`, `activitylog`
-  and `watch` are its own. Pick a word of your own for anything else; the page
+- `source` — who wrote the entry. `here` is this module; `historylog`, `activitylog`,
+  `vocabsync` and `watch` are its own. Pick a word of your own for anything else; the page
   shows it as "recorded by <word>".
 - `source_ref` — your own reference for the change, unique within your `source`
   (`turn:412`). `source` and `source_ref` are unique together, so writing the same entry
@@ -191,7 +221,7 @@ your own:
 {"type":"literal","value":"<sha256> · <bytes> bytes","uri":null,"vr":null,"lang":null,"pub":1}
 ```
 
-`type` is the data type (`literal`, `uri`, `resource:item`, `customvocab:<id>`…), `uri` the
+`type` is the data type (`literal`, `uri`, `resource:item`, `vocabsync:<id>`…), `uri` the
 address of a link, `vr` the id of a linked resource, `lang` the language, `pub` 0 for a
 private value. For a setting rather than a value (`o:is_public`, `o:owner`) it is
 `{"id": 4}` instead, and for an `order` row a list of those. A shape this does not know
