@@ -20,6 +20,12 @@
 
 .rhc-two { grid-template-columns: 13em 1fr; }
 
+/* Somebody else saved the resource while this form was open (1.0.4). */
+.rhc-stale { margin: 12px 0 4px; padding: 10px 14px; border-left: 4px solid #b45309; background: #fff7e6; color: #5c3a00; }
+.rhc-stale p { margin: 4px 0; }
+.rhc-stale-head { font-weight: 700; }
+.rhc-stale ul { margin: 4px 0 6px 1.2em; padding: 0; }
+
 .rhc-foot { border-top: 1px solid #e3e3e3; padding: 14px 20px; display: flex; gap: 10px; align-items: center; }
 .rhc-foot button { font: inherit; border-radius: 3px; padding: 9px 18px; cursor: pointer; border: 1px solid transparent; }
 .rhc-save { background: #ba2a1f; color: #fff; border-color: #ba2a1f; font-weight: 700; }

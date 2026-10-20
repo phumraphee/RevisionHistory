@@ -494,6 +494,12 @@
         }
         out.append('revision_history_kind', cfg.kind || 'item');
         out.append('revision_history_id', cfg.id || 0);
+        // Where the resource stood when this page was opened, so that the answer can say
+        // whether somebody else has saved it since.
+        if (cfg.seen || cfg.opened) {
+            out.append('revision_history_seen', cfg.seen || 0);
+            out.append('revision_history_opened', cfg.opened || '');
+        }
         if (leaving) {
             out.append('revision_history_leaving', '1');
         }

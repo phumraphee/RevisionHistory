@@ -166,17 +166,56 @@ class IndexController extends AbstractActionController
             $this->getResponse()->getHeaders()->addHeaderLine('X-Revision-History-Changes', '0');
         }
 
+        $leaving = !empty($post['revision_history_leaving']);
         $view = new ViewModel([
             'kind' => $kind,
             'id' => $id,
             'making' => $making,
-            'leaving' => !empty($post['revision_history_leaving']),
+            'leaving' => $leaving,
+            'stale' => ($changes && !$leaving && !$making) ? $this->savedSince($id, $post) : null,
             'before' => $before,
             'after' => $after,
             'changes' => $changes,
         ]);
         $view->setTerminal(true);
         return $view;
+    }
+
+    /**
+     * WHO SAVED THIS RESOURCE AFTER THE FORM WAS OPENED, if anybody (1.0.4).
+     *
+     * The form sends back the last line of the resource's history as it was when the page
+     * was opened (`revision_history_seen`) and the resource's own modified time then
+     * (`revision_history_opened`). A line written since is somebody else's save — another
+     * person on this form, the API, a background job, a page of another module — and
+     * saving this form as it stands puts back what that save changed. The modified time
+     * covers a resource whose save the history did not record.
+     *
+     * @return array{events:list<array>,more:int,modified:string}|null null when nobody did
+     */
+    private function savedSince(int $id, array $post): ?array
+    {
+        if ($id <= 0 || !isset($post['revision_history_seen'])
+            || !$this->services->get('Omeka\Settings')->get('revision_history_confirm_stale', true)) {
+            return null;
+        }
+        $seen = (int) $post['revision_history_seen'];
+        $opened = (string) ($post['revision_history_opened'] ?? '');
+        $conn = $this->services->get('Omeka\Connection');
+        try {
+            $rows = $conn->fetchAllAssociative(
+                'SELECT * FROM `revision_history_event` WHERE (`resource_id` = ? OR `item_id` = ?) AND `id` > ? ORDER BY `id` DESC LIMIT 6',
+                [$id, $id, $seen]
+            );
+            $modified = (string) ($conn->fetchOne('SELECT `modified` FROM `resource` WHERE `id` = ?', [$id]) ?: '');
+        } catch (\Throwable $e) {
+            return null;
+        }
+        $later = $opened !== '' && $modified !== '' && strcmp($modified, $opened) > 0;
+        if (!$rows && !$later) {
+            return null;
+        }
+        return ['events' => array_slice($rows, 0, 5), 'more' => max(0, count($rows) - 5), 'modified' => $later ? $modified : ''];
     }
 
     /**

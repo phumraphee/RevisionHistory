@@ -13,6 +13,7 @@
  * @var array $after the resource as the form would leave it
  * @var array $changes
  * @var bool $leaving whether the question is "before you leave" rather than "before you save"
+ * @var array|null $stale who saved the resource after the form was opened (1.0.4)
  */
 $s = $this->revisionHistoryShow();
 $e = [$s, 'e'];
@@ -40,6 +41,22 @@ $isTerm = function (string $f) {
     return strpos($f, ':') !== false && strpos($f, 'o:') !== 0 && strpos($f, 'o-module-') !== 0;
 };
 ?>
+<?php if (!empty($stale)): ?>
+<div class="rhc-stale" role="alert">
+    <p class="rhc-stale-head"><?= $e($this->translate('Somebody else saved this after you opened this page.')) ?></p>
+    <?php if ($stale['events']): ?>
+    <ul>
+        <?php foreach ($stale['events'] as $ev): ?>
+        <li><?= $e($s->local((string) $ev['happened_at'])->format('Y-m-d H:i')) ?> · <?= $e((string) ($ev['user_name'] ?: $this->translate('nobody signed in'))) ?> · <?= $e($s->via($ev)) ?></li>
+        <?php endforeach; ?>
+        <?php if ($stale['more']): ?><li><?= $e($this->translate('and more')) ?></li><?php endif; ?>
+    </ul>
+    <?php elseif ($stale['modified'] !== ''): ?>
+    <ul><li><?= $e($s->local($stale['modified'])->format('Y-m-d H:i')) ?></li></ul>
+    <?php endif; ?>
+    <p><?= $e($this->translate('Saving this form as it stands puts back what they changed: it is in the list below. To keep their work, cancel, keep a copy of what you typed, and open the page again.')) ?></p>
+</div>
+<?php endif; ?>
 <?php if (!$changes): ?>
 <p class="rhc-empty"><?= $e($this->translate('Nothing has been changed.')) ?></p>
 <?php else: ?>

@@ -321,7 +321,18 @@ and Cancel asks *Before you leave* (1.0.2). A click made by a script does not co
 Cancelling the save dialog also takes Omeka's "submitted" mark off the form again, so the
 warning is not lost after a save that did not happen.
 
-**Modules → Revision History → Configure** turns it off (`revision_history_confirm`). Omeka lets only a
+**Somebody else saved first (1.0.4).** Omeka has no lock on an edit form: a form left open
+saves the whole resource as it stood when the page was drawn, and whatever somebody else saved
+in between — on another admin form, through the API, from a background job or another module's
+page — is put back without anyone noticing. So the form remembers the last line of the
+resource's history (and its modified time, for a save the history did not record) when it is
+opened, and the check before saving says, above the list of changes, who saved it since, when,
+and how. The list below it already shows their work being undone; this says why. Saving is
+still the person's choice — the dialog only says so. A form that would change nothing is not
+asked about, since saving it loses nothing.
+
+**Modules → Revision History → Configure** turns it off (`revision_history_confirm`), and the
+warning on its own (`revision_history_confirm_stale`). Omeka lets only a
 global administrator open a module's settings. The history is kept either way.
 
 ### What another module can rely on

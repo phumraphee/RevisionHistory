@@ -68,6 +68,10 @@ class Module extends AbstractModule
         if ($settings->get('revision_history_confirm') === null) {
             $settings->set('revision_history_confirm', true);
         }
+        // And say so when somebody else saved the resource after the form was opened (1.0.4).
+        if ($settings->get('revision_history_confirm_stale') === null) {
+            $settings->set('revision_history_confirm_stale', true);
+        }
     }
 
     public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $services)
@@ -110,12 +114,19 @@ class Module extends AbstractModule
                 . $renderer->escapeHtml($value) . '" placeholder="dcterms:title">';
         };
         $on = (bool) $settings->get('revision_history_confirm', true);
+        $stale = (bool) $settings->get('revision_history_confirm_stale', true);
         return $field(
             'revision_history_confirm',
             'Check before saving', // @translate
             'Show what a save would change, and ask, before it is made. The history is kept either way.', // @translate
             '<input type="hidden" name="revision_history_confirm" value="0">'
                 . '<input type="checkbox" id="revision_history_confirm" name="revision_history_confirm" value="1"' . ($on ? ' checked' : '') . '>'
+        ) . $field(
+            'revision_history_confirm_stale',
+            'Warn when somebody else saved first', // @translate
+            'In the check before saving, say so when the resource was saved by somebody else after the form was opened — saving the form as it stands would undo their work.', // @translate
+            '<input type="hidden" name="revision_history_confirm_stale" value="0">'
+                . '<input type="checkbox" id="revision_history_confirm_stale" name="revision_history_confirm_stale" value="1"' . ($stale ? ' checked' : '') . '>'
         ) . $field(
             'revision_history_title_term',
             'Title field', // @translate
@@ -134,6 +145,7 @@ class Module extends AbstractModule
         $settings = $this->getServiceLocator()->get('Omeka\Settings');
         $params = $controller->params();
         $settings->set('revision_history_confirm', (bool) $params->fromPost('revision_history_confirm'));
+        $settings->set('revision_history_confirm_stale', (bool) $params->fromPost('revision_history_confirm_stale'));
         foreach (['revision_history_title_term', 'revision_history_accession_term'] as $name) {
             $term = trim((string) $params->fromPost($name, ''));
             if ($term !== '' && !preg_match('/^[A-Za-z][A-Za-z0-9_-]*:[A-Za-z_][A-Za-z0-9_.-]*$/', $term)) {
@@ -247,14 +259,37 @@ class Module extends AbstractModule
                 return;
             }
             $batch = strpos((string) $route->getParam('action'), 'batch') === 0;
+            $id = (int) $route->getParam('id');
+            // WHERE THE RESOURCE STOOD WHEN THIS FORM WAS OPENED: the last line of its
+            // history, and its own modified time for a resource the history has no line
+            // for. Sent back with the check before saving, so that a save somebody else
+            // made in between can be named (1.0.4).
+            $seen = 0;
+            $opened = '';
+            if (!$batch && $id > 0
+                && $services->get('Omeka\Settings')->get('revision_history_confirm_stale', true)) {
+                try {
+                    $conn = $services->get('Omeka\Connection');
+                    $seen = (int) $conn->fetchOne(
+                        'SELECT COALESCE(MAX(`id`), 0) FROM `revision_history_event` WHERE `resource_id` = ? OR `item_id` = ?',
+                        [$id, $id]
+                    );
+                    $opened = (string) ($conn->fetchOne('SELECT `modified` FROM `resource` WHERE `id` = ?', [$id]) ?: '');
+                } catch (\Throwable $e) {
+                    $seen = 0;
+                    $opened = '';
+                }
+            }
             $view = $event->getTarget();
             $view->headLink()->appendStylesheet($view->assetUrl('css/history.css', 'RevisionHistory'));
             $view->headLink()->appendStylesheet($view->assetUrl('css/confirm.css', 'RevisionHistory'));
             $view->headScript()->appendScript('window.RevisionHistoryConfirm = ' . json_encode([
                 'url' => $view->url('admin/revision-history', ['action' => 'preview']),
                 'kind' => $kind,
-                'id' => (int) $route->getParam('id'),
+                'id' => $id,
                 'mode' => $batch ? 'batch' : 'one',
+                'seen' => $seen,
+                'opened' => $opened,
                 // The form that saves the resource, and nothing else: the Delete panel on
                 // the same page is a form too, and asking "what would this save change"
                 // before a deletion is both wrong and in the way. Omeka asks about a
