@@ -310,6 +310,9 @@ Closing the tab and the back button cannot be caught that way, and there the bro
 is the only one there is. Omeka has one, but it decides from the form's named fields, and the
 boxes a value is typed into have none. So this marks the form as touched (`Omeka.markDirty`,
 its own call) the first time somebody really types in it, which makes that warning appear.
+Making a value private (the eye) and removing a value count too: they are links, not fields,
+and change the form without a word, so a real press on one of them marks the form the same way
+and Cancel asks *Before you leave* (1.0.2). A click made by a script does not count.
 Cancelling the save dialog also takes Omeka's "submitted" mark off the form again, so the
 warning is not lost after a save that did not happen.
 

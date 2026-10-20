@@ -57,12 +57,22 @@
      * is gone. Telling Omeka, in its own way, that the form has been touched is enough
      * to make its own warning appear. Only what a person really did counts (isTrusted);
      * a change the page makes to itself while loading is not somebody's work.
+     *
+     * Making a value private (the eye) and removing a value are work too, but they are
+     * links, not fields: Omeka's own script changes the form behind them and says
+     * nothing — no input, no change. So a press on one of them counts as well.
      */
     function warnOnLeaving(state) {
         var form = state.form;
         var mark = function (ev) {
             if (!ev.isTrusted) {
                 return;
+            }
+            if (ev.type === 'click') {
+                var link = ev.target && ev.target.closest ? ev.target.closest(VALUE_ACTIONS) : null;
+                if (!link || !form.contains(link)) {
+                    return;
+                }
             }
             state.touched = true;
             if (!window.Omeka || !window.Omeka.markDirty) {
@@ -71,10 +81,15 @@
             window.Omeka.markDirty(form);
             form.removeEventListener('input', mark, true);
             form.removeEventListener('change', mark, true);
+            form.removeEventListener('click', mark, true);
         };
         form.addEventListener('input', mark, true);
         form.addEventListener('change', mark, true);
+        form.addEventListener('click', mark, true);
     }
+
+    /** The links on a value that change it without a field saying so. */
+    var VALUE_ACTIONS = 'a.value-visibility, a.remove-value, a.restore-value';
 
     function attach(state) {
         var form = state.form;

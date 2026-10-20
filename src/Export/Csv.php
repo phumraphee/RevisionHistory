@@ -193,7 +193,7 @@ class Csv
         fwrite($handle, "\xEF\xBB\xBF");
         $head = self::COLUMNS;
         $head[1] = 'When (' . $this->tz . ')';
-        fputcsv($handle, $head);
+        fputcsv($handle, $head, ',', '"', '\\');
 
         $labels = $this->labels();
         $verb = ['created' => 'created', 'edited' => 'changed', 'deleted' => 'deleted'];
@@ -233,7 +233,7 @@ class Csv
                     (int) $e['id'],
                 ];
                 if (!$e['changes']) {
-                    fputcsv($handle, array_merge($base, ['', '', '', '', '', ''], $tail));
+                    fputcsv($handle, array_merge($base, ['', '', '', '', '', ''], $tail), ',', '"', '\\');
                     $lines++;
                 } else {
                     foreach ($e['changes'] as $c) {
@@ -244,7 +244,7 @@ class Csv
                             self::plain($c['after']),
                             self::place($c['place_before'] ?? null, $c['size_before'] ?? null),
                             self::place($c['place_after'] ?? null, $c['size_after'] ?? null),
-                        ], $tail));
+                        ], $tail), ',', '"', '\\');
                         $lines++;
                     }
                 }
