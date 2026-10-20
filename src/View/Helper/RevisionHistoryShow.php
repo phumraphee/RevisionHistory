@@ -547,6 +547,11 @@ class RevisionHistoryShow extends AbstractHelper
                 return 'saved from the command line';
             case 'site':
                 return 'saved from the public site';
+            case 'web':
+                // A web request that is none of those: Omeka's own login and logout
+                // pages, or a page of a module outside the admin pages and the sites.
+                return 'saved by a web request outside the admin pages, the API and the sites'
+                    . ($d !== '' ? ' · ' . $d : '');
         }
         return (string) $e['via'];
     }
@@ -785,9 +790,72 @@ class RevisionHistoryShow extends AbstractHelper
         }
         $notes = [];
         foreach ($v['note'] as $n) {
-            $notes[] = '<span class="rh-note-f">' . $this->e($this->fieldLabel($n['f'] ?? '')) . ':</span> ' . $this->valueBody($n);
+            // Its language and visibility as well: a value of an annotation is made
+            // private with its own eye, and without the mark both sides read the same.
+            $notes[] = '<span class="rh-note-f">' . $this->e($this->fieldLabel($n['f'] ?? '')) . ':</span> ' . $this->valueBody($n)
+                . (!empty($n['lang']) ? ' <span class="rh-lang">' . $this->e($n['lang']) . '</span>' : '')
+                . (isset($n['pub']) && !$n['pub'] ? ' <span class="rh-private">Private</span>' : '');
         }
         return '<div class="rh-note">Value annotations — ' . implode(' · ', $notes) . '</div>';
+    }
+
+    /**
+     * What happened to the value annotations of one value, in words: each annotation
+     * value added, removed, edited, made private or public, by the name of its field.
+     * Values that are on both sides, exactly, are left out; what is left is paired by
+     * field, in order — the same rule a field's own values are compared by.
+     */
+    public function noteWords(array $b, array $a): string
+    {
+        $key = function ($v) {
+            return json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        };
+        $old = array_values((array) ($b['note'] ?? []));
+        $new = array_values((array) ($a['note'] ?? []));
+        foreach ($old as $i => $x) {
+            foreach ($new as $j => $y) {
+                if ($key($x) === $key($y)) {
+                    unset($old[$i], $new[$j]);
+                    break;
+                }
+            }
+        }
+        $out = [];
+        $name = function (array $n) {
+            return $this->fieldLabel((string) ($n['f'] ?? ''));
+        };
+        foreach ($old as $x) {
+            $pair = null;
+            foreach ($new as $j => $y) {
+                if (($y['f'] ?? '') === ($x['f'] ?? '')) {
+                    $pair = $j;
+                    break;
+                }
+            }
+            if ($pair === null) {
+                $out[] = $name($x) . ' removed';
+                continue;
+            }
+            $y = $new[$pair];
+            unset($new[$pair]);
+            $rest = function (array $n, array $except) {
+                foreach ($except as $k) {
+                    unset($n[$k]);
+                }
+                return $n;
+            };
+            if ($rest($x, ['pub']) == $rest($y, ['pub'])) {
+                $out[] = $name($x) . ' ' . (!empty($y['pub']) ? 'Private → Public' : 'Public → Private');
+            } elseif ($rest($x, ['lang']) == $rest($y, ['lang'])) {
+                $out[] = $name($x) . ' language ' . (($x['lang'] ?? '') ?: '—') . ' → ' . (($y['lang'] ?? '') ?: '—');
+            } else {
+                $out[] = $name($x) . ' edited';
+            }
+        }
+        foreach ($new as $y) {
+            $out[] = $name($y) . ' added';
+        }
+        return 'Value annotations' . ($out ? ': ' . implode(' · ', $out) : '');
     }
 
     /**
@@ -858,7 +926,7 @@ class RevisionHistoryShow extends AbstractHelper
                     . ' <span class="rh-what">Language: ' . $this->e($b['lang'] ?: '—') . ' → ' . $this->e($a['lang'] ?: '—') . '</span>';
             }
             if ($same($b, $a, ['note'])) {
-                return $this->valueBody($a) . ' <span class="rh-what">Value annotations</span>'
+                return $this->valueBody($a) . ' <span class="rh-what">' . $this->e($this->noteWords($b, $a)) . '</span>'
                     . '<div class="rh-pair"><div class="rh-b"><span class="rh-cap">Before</span>' . $this->value($b, $c['field']) . '</div>'
                     . '<div class="rh-a"><span class="rh-cap">After</span>' . $this->value($a, $c['field']) . '</div></div>';
             }
@@ -955,7 +1023,7 @@ class RevisionHistoryShow extends AbstractHelper
             $out[] = 'Visibility: ' . (!empty($a['pub']) ? 'Private → Public' : 'Public → Private');
         }
         if (($b['note'] ?? []) != ($a['note'] ?? [])) {
-            $out[] = 'Value annotations';
+            $out[] = $this->noteWords($b, $a);
         }
         return $out ? implode(' · ', $out) : 'changed in a way this page cannot show';
     }

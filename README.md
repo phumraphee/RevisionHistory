@@ -68,7 +68,12 @@ the admin form, the REST API, batch edit, background jobs, other modules that us
   order of an item's media are recorded too; for an item set, whether it is open; for a media, its
   source, alt text, language, media type, HTML, and its file by fingerprint (sha256) and size.
 - What a resource held when it was deleted is also kept whole (`revision_history_snapshot`), so it can be made again.
-- A note on a value (value annotation) is part of that value: changing the note is an edit.
+- A note on a value (value annotation) is part of that value: changing the note is an edit of that
+  value — a note added, its text changed, one of its values made private or public, a value added to it
+  or taken out of it, the note removed. The page names the value it hangs on and says, by the note's
+  field, what happened (*Value annotations: Description Public → Private*, *Date added*); each note value shows its
+  language and *Private* as a value of its own field does (1.0.3). Putting the save back puts the note
+  back with the value.
 - Image Annotate annotations (table `image_annotate_media`) are followed by each annotation's own id:
   added · edited (body text or selector) · removed, shown under the field name *Image Annotate* and the
   module's own key `o-module-image_annotate:annotation`. A deleted media keeps the annotations it had.

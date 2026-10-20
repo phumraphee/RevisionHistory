@@ -216,6 +216,55 @@ check('a link that changed only its data type says so, in Omeka\'s words',
 check('the selector is shown as Image Annotate stores it', $show->where('xywh=percent:78.5,84,18,12'), 'xywh=percent:78.5,84,18,12');
 check('language and visibility together', $show->differs(v('A'), v('A', ['lang' => 'th', 'pub' => 0])), 'Language: — → th · Visibility: Public → Private');
 
+/* ------------------------------------------- value annotations, in words and on the page (1.0.3) */
+
+$n = function (string $f, string $text, array $extra = []) {
+    return ['f' => $f] + v($text, $extra);
+};
+$withNotes = function (string $text, array $notes) {
+    return v($text) + ['note' => $notes];
+};
+// Called through this, so that against a version without it the checks fail one by one.
+$words = function (array $b, array $a) use ($show) {
+    return method_exists($show, 'noteWords') ? $show->noteWords($b, $a) : '(no noteWords)';
+};
+check('a value of an annotation made private is said so, by its field',
+    $words($withNotes('A', [$n('dcterms:description', 'n')]), $withNotes('A', [$n('dcterms:description', 'n', ['pub' => 0])])),
+    'Value annotations: dcterms:description Public → Private');
+check('…and made public again',
+    $words($withNotes('A', [$n('dcterms:description', 'n', ['pub' => 0])]), $withNotes('A', [$n('dcterms:description', 'n')])),
+    'Value annotations: dcterms:description Private → Public');
+check('an annotation added to a value that had none',
+    $words(v('A'), $withNotes('A', [$n('dcterms:description', 'n')])),
+    'Value annotations: dcterms:description added');
+check('one edited, one removed, one left as it was',
+    $words(
+        $withNotes('A', [$n('dcterms:description', 'n'), $n('dcterms:date', '1961'), $n('dcterms:source', 's')]),
+        $withNotes('A', [$n('dcterms:description', 'n2'), $n('dcterms:source', 's')])
+    ),
+    'Value annotations: dcterms:description edited · dcterms:date removed');
+check('its language',
+    $words($withNotes('A', [$n('dcterms:description', 'n')]), $withNotes('A', [$n('dcterms:description', 'n', ['lang' => 'th'])])),
+    'Value annotations: dcterms:description language — → th');
+check('differs() says the same words', $show->differs($withNotes('A', [$n('dcterms:description', 'n')]), $withNotes('A', [])),
+    'Value annotations: dcterms:description removed');
+$priv = $show->notes($withNotes('A', [$n('dcterms:description', 'n', ['pub' => 0, 'lang' => 'th'])]));
+check('a private annotation value is marked Private on the page', strpos($priv, '<span class="rh-private">Private</span>') !== false, true);
+check('…and its language is shown', strpos($priv, '<span class="rh-lang">th</span>') !== false, true);
+$both = $show->edit(['op' => 'edited', 'field' => 'dcterms:title',
+    'before' => $withNotes('A', [$n('dcterms:description', 'n')]), 'after' => $withNotes('A', [$n('dcterms:description', 'n', ['pub' => 0])])]);
+check('an annotation made private: the two sides of the edit no longer read the same',
+    substr_count($both, 'rh-private'), 1);
+check('…and the line says what happened to it', strpos($both, 'dcterms:description Public → Private') !== false, true);
+
+/* ------------------------------------------------------------ how a save arrived */
+
+check('a web request that is not admin, API or site has words of its own',
+    $show->via(['source' => 'here', 'via' => 'web', 'via_detail' => '/login']),
+    'saved by a web request outside the admin pages, the API and the sites · /login');
+check('…also without an address', $show->via(['source' => 'here', 'via' => 'web', 'via_detail' => '']),
+    'saved by a web request outside the admin pages, the API and the sites');
+
 /* ---------------------------------------------- Vocab Sync's own record */
 
 $vs = function ($action, $detail = null) {
