@@ -27,6 +27,14 @@ class Module extends AbstractModule
     /** Everybody who can save a resource, and so sees what a save would change first. */
     const SAVERS = ['global_admin', 'site_admin', 'editor', 'reviewer', 'author'];
 
+    /**
+     * Who may put back a save of THEIR OWN, when nobody has saved the resource since
+     * (1.0.5). An editor could already cancel a Batch Values run but had to find a global
+     * administrator to undo one save of their own; the rule in restoreAction() keeps
+     * everybody else's work out of their reach.
+     */
+    const OWN_RESTORERS = ['site_admin', 'editor'];
+
     public function getConfig()
     {
         return include __DIR__ . '/config/module.config.php';
@@ -168,6 +176,7 @@ class Module extends AbstractModule
         $acl = $services->get('Omeka\Acl');
         $acl->allow(self::READERS, [Controller\Admin\IndexController::class], ['browse', 'item', 'export']);
         $acl->allow(self::SAVERS, [Controller\Admin\IndexController::class], ['preview', 'refused']);
+        $acl->allow(self::OWN_RESTORERS, [Controller\Admin\IndexController::class], ['restore']);
         $acl->allow('global_admin', [Controller\Admin\IndexController::class]);
 
         $recorder = new Recorder($services);
@@ -290,6 +299,10 @@ class Module extends AbstractModule
                 'mode' => $batch ? 'batch' : 'one',
                 'seen' => $seen,
                 'opened' => $opened,
+                // whether this form can be told that somebody else saved first; where it can,
+                // a check that does not answer is said, not taken as "nobody did" (1.0.5)
+                'stale' => !$batch && $id > 0
+                    && (bool) $services->get('Omeka\Settings')->get('revision_history_confirm_stale', true),
                 // The form that saves the resource, and nothing else: the Delete panel on
                 // the same page is a form too, and asking "what would this save change"
                 // before a deletion is both wrong and in the way. Omeka asks about a
@@ -307,6 +320,11 @@ class Module extends AbstractModule
                 'stay' => $view->translate('Keep editing'), // @translate
                 'cancel' => $view->translate('Cancel'), // @translate
                 'waiting' => $view->translate('Loading…'), // @translate
+                'uncheckedHead' => $view->translate('Could not check whether somebody else saved this.'), // @translate
+                'uncheckedSay' => $view->translate('The check did not answer. Check again — nothing you typed is lost — or tick the box and save anyway.'), // @translate
+                'uncheckedTick' => $view->translate('I understand this save may undo a save somebody else made'), // @translate
+                'saveAnyway' => $view->translate('Save anyway'), // @translate
+                'checkAgain' => $view->translate('Check again'), // @translate
                 'wait' => 8000,
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';');
             $view->headScript()->appendFile($view->assetUrl('js/confirm.js', 'RevisionHistory'));

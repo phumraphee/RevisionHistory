@@ -40,8 +40,10 @@ return [
             ],
         ],
     ],
+    // Under Resources, beside Items and Batch Values: the desk opens it every day, and a
+    // page used every day does not belong under Modules (audit-staff-ux R11, 1.0.5).
     'navigation' => [
-        'AdminModule' => [
+        'AdminResource' => [
             [
                 'label' => 'Revision History', // @translate
                 'route' => 'admin/revision-history',

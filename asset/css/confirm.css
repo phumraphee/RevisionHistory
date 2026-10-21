@@ -40,3 +40,9 @@
     .rhc-foot { position: sticky; bottom: 0; background: #fff; flex-direction: column; align-items: stretch; }
     .rhc-foot button { width: 100%; text-align: center; white-space: nowrap; }
 }
+
+/* 1.0.5: the tick that has to be given before saving over somebody else's save */
+.rhc-stale-ok { display: flex; gap: .5em; align-items: flex-start; margin: 8px 0 2px; font-weight: 600; cursor: pointer; }
+.rhc-stale-ok input { margin-top: .2em; width: 1.1em; height: 1.1em; flex: 0 0 auto; }
+.rhc-save:disabled { opacity: .45; cursor: not-allowed; }
+@media (pointer: coarse) { .rhc-stale-ok input { width: 24px; height: 24px; } }

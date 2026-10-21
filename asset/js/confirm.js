@@ -131,11 +131,34 @@
                     window.jQuery(form).data('omekaFormSubmitted', false);
                 }
             };
-            // Whatever happens, the save is never held for longer than this.
-            var timer = window.setTimeout(go, cfg.wait || 8000);
+            // Whatever happens, the save is never held for longer than this. Where the
+            // form can say whether somebody else saved first (cfg.stale), a check that did
+            // not answer is NOT taken as "nobody did" (1.0.5): the person is told it could
+            // not be made, and saves anyway only on purpose. Elsewhere it goes through.
+            var timer = null;
+            var ctl = null;
+            var body = null;
+            var unchecked = function () {
+                if (done) {
+                    return;
+                }
+                window.clearTimeout(timer);
+                var c = ctl;
+                ctl = null;
+                if (c) {
+                    try { c.abort(); } catch (e) {}
+                }
+                showUnchecked(go, stop, startAsk);
+            };
+            var failed = cfg.stale ? unchecked : go;
+            var startAsk = function () {
+                waiting();
+                timer = window.setTimeout(failed, cfg.wait || 8000);
+                ctl = window.AbortController ? new window.AbortController() : null;
+                ask(body, timer, go, stop, failed, ctl);
+            };
 
             if (cfg.mode === 'batch') {
-                window.clearTimeout(timer);
                 window.setTimeout(function () {
                     show(batchBody(form), go, stop);
                 }, 0);
@@ -148,33 +171,66 @@
             // required fields stops the save there too.
             window.setTimeout(function () {
                 if (window.jQuery && window.jQuery(form).data('has-error')) {
-                    window.clearTimeout(timer);
                     stop();
                     return;
                 }
-                var body;
                 try {
                     body = payload(form, submitter);
                 } catch (e) {
-                    window.clearTimeout(timer);
-                    go();
+                    failed();
                     return;
                 }
-                ask(body, timer, go, stop);
+                startAsk();
             }, 0);
         });
     }
 
-    /** Ask the server what would change. go() and stop() each only ever act once. */
-    function ask(body, timer, go, stop) {
+    /**
+     * SIGNED OUT WHILE THE PAGE WAS OPEN (1.0.5). When the session has run out — the day's
+     * timeout, or Active Sessions signing somebody out — the preview is answered by Omeka's
+     * sign-in page, with a 200. That page used to appear inside "Before you save", and
+     * pressing Save sent the form to the sign-in page and lost everything typed. The
+     * preview always says how many changes it found (X-Revision-History-Changes); an
+     * answer that does not, or that was sent somewhere else on the way, is not it.
+     */
+    function signedOut(r) {
+        return !!(r.redirected || r.headers.get('X-Revision-History-Changes') === null);
+    }
+
+    /** Said instead of the save, when the session has ended: nothing is sent, nothing lost. */
+    function showSignedOut(stop) {
+        var box = frame();
+        // Omeka's sign-in page, beside wherever this Omeka's admin is (it need not be the root)
+        var base = String(cfg.url || '').replace(/\/admin\/.*$/, '');
+        var login = base + '/login?redirect_url=' + encodeURIComponent(base + '/admin');
+        box.innerHTML = '<div class="rhc-head"><h2>' + esc(cfg.outTitle || 'You have been signed out') + '</h2></div>'
+            + '<div class="rhc-body"><p>' + esc(cfg.outSay || 'Your session ended while this page was open, so this save was not sent — it would have been lost. What you typed is still in the form.') + '</p>'
+            + '<p>' + esc(cfg.outHow || 'Sign in again in a new tab, then come back to this tab and press Save again.') + '</p></div>'
+            + '<div class="rhc-foot">'
+            + '<a class="button rhc-save" href="' + esc(login) + '" target="_blank" rel="noopener">' + esc(cfg.outSignIn || 'Sign in in a new tab') + '</a>'
+            + '<button type="button" class="rhc-cancel">' + esc(cfg.outBack || 'Back to the form') + '</button>'
+            + '</div>';
+        box.querySelector('.rhc-cancel').addEventListener('click', stop);
+        box.querySelector('.rhc-save').focus();
+    }
+
+    /**
+     * Ask the server what would change. go() and stop() each only ever act once; failed()
+     * is what a check that cannot be made leads to (go, or "could not check" — see attach).
+     */
+    function ask(body, timer, go, stop, failed, ctl) {
         window.fetch(cfg.url, {
                 method: 'POST',
                 body: body,
                 credentials: 'same-origin',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                signal: ctl ? ctl.signal : undefined
             }).then(function (r) {
                 if (!r.ok) {
                     throw new Error(r.status);
+                }
+                if (signedOut(r)) {
+                    throw new Error('signedout');
                 }
                 // Nothing would change: there is nothing to ask about.
                 if (r.headers.get('X-Revision-History-Changes') === '0') {
@@ -184,10 +240,72 @@
             }).then(function (html) {
                 window.clearTimeout(timer);
                 show(html, go, stop);
-            })['catch'](function () {
+            })['catch'](function (e) {
                 window.clearTimeout(timer);
-                go();
+                if (ctl && ctl.signal && ctl.signal.aborted) {
+                    return;      // given up on already: the "could not check" box is open
+                }
+                if (e && e.message === 'signedout') {
+                    stop();
+                    showSignedOut(close);
+                    return;
+                }
+                if (e && e.message === 'nothing') {
+                    go();
+                    return;
+                }
+                (failed || go)();
             });
+    }
+
+    /**
+     * COULD NOT CHECK (1.0.5). The check of whether somebody else saved this first failed
+     * or did not answer in time. Until 1.0.4 that saved at once, which is the one moment
+     * the check exists for passing silently. Now it is said, and the save needs a tick:
+     * check again (nothing is reloaded, nothing typed is lost), or save anyway on purpose.
+     */
+    function showUnchecked(go, stop, again) {
+        var box = frame();
+        box.innerHTML = '<div class="rhc-head"><h2>' + esc(cfg.title || 'Before you save') + '</h2></div>'
+            + '<div class="rhc-body"><div class="rhc-stale" role="alert">'
+            + '<p class="rhc-stale-head">' + esc(cfg.uncheckedHead || 'Could not check whether somebody else saved this.') + '</p>'
+            + '<p>' + esc(cfg.uncheckedSay || 'The check did not answer. Check again — nothing you typed is lost — or tick the box and save anyway.') + '</p>'
+            + '<label class="rhc-stale-ok"><input type="checkbox" data-rhc-stale-ok> '
+            + esc(cfg.uncheckedTick || 'I understand this save may undo a save somebody else made') + '</label>'
+            + '</div></div>'
+            + '<div class="rhc-foot">'
+            + '<button type="button" class="rhc-save" disabled>' + esc(cfg.saveAnyway || 'Save anyway') + '</button>'
+            + '<button type="button" class="rhc-again">' + esc(cfg.checkAgain || 'Check again') + '</button>'
+            + '<button type="button" class="rhc-cancel">' + esc(cfg.cancel || 'Cancel') + '</button>'
+            + '</div>';
+        var save = box.querySelector('.rhc-save');
+        wireTick(box, save);
+        save.addEventListener('click', function () {
+            if (!save.disabled) {
+                go();
+            }
+        });
+        box.querySelector('.rhc-again').addEventListener('click', again);
+        box.querySelector('.rhc-cancel').addEventListener('click', stop);
+        box.querySelector('[data-rhc-stale-ok]').focus();
+    }
+
+    /**
+     * SOMEBODY ELSE SAVED FIRST: SAVE ONLY ONCE THAT HAS BEEN READ (1.0.5). Where the
+     * answer names a save made since the form was opened, it carries a tick box
+     * ("I have read that this undoes X's save of 14:02"); Save stays off until it is
+     * ticked. Not a refusal — saving over it is still possible — but not by a press made
+     * without reading.
+     */
+    function wireTick(box, save) {
+        var tick = box.querySelector('[data-rhc-stale-ok]');
+        if (!tick) {
+            return;
+        }
+        save.disabled = !tick.checked;
+        tick.addEventListener('change', function () {
+            save.disabled = !tick.checked;
+        });
     }
 
     /**
@@ -298,12 +416,12 @@
                 gather(state.form);
                 body = payload(state.form, null, true);
             } catch (e) {
-                leave(link);
+                leaveUnchecked(link);
                 return;
             }
             waiting();
             var timer = window.setTimeout(function () {
-                leave(link);
+                leaveUnchecked(link);
             }, cfg.wait || 8000);
             window.fetch(cfg.url, {
                 method: 'POST',
@@ -314,6 +432,10 @@
                 if (!r.ok) {
                     throw new Error(r.status);
                 }
+                // Signed out: the question cannot be asked, so Omeka's own warning stays on.
+                if (signedOut(r)) {
+                    throw new Error('signedout');
+                }
                 // Touched, but nothing came of it: there is nothing to lose by leaving.
                 if (r.headers.get('X-Revision-History-Changes') === '0') {
                     throw new Error('nothing');
@@ -322,9 +444,15 @@
             }).then(function (html) {
                 window.clearTimeout(timer);
                 leaving(html, state, link);
-            })['catch'](function () {
+            })['catch'](function (e) {
                 window.clearTimeout(timer);
-                leave(link);
+                // Nothing would be lost: go. Anything else (the check failed, the server is
+                // slow): go too, but with Omeka's own unsaved-changes warning still on.
+                if (e && e.message === 'nothing') {
+                    leave(link);
+                } else {
+                    leaveUnchecked(link);
+                }
             });
         }, true);
     }
@@ -337,10 +465,20 @@
      * would read as "every value removed". Running that handler alone (jQuery's
      * triggerHandler calls the handlers and nothing else) is what makes the form say
      * what it holds now. Nothing is submitted and nothing is written.
+     *
+     * ONE OF THOSE HANDLERS IS OMEKA'S "THIS FORM WAS SUBMITTED" (global.js
+     * setSubmittedFlag), and from that moment its unsaved-changes warning is off. Running
+     * it here switched the warning off on every question asked before leaving — so a
+     * check that failed, or "Keep editing", left the form without the browser's own
+     * question (found by t-rh-leave-unchecked on the rig, 1.0.5). The flag is put back as
+     * it was.
      */
     function gather(form) {
         if (window.jQuery) {
-            window.jQuery(form).triggerHandler('submit');
+            var $form = window.jQuery(form);
+            var was = $form.data('omekaFormSubmitted');
+            $form.triggerHandler('submit');
+            $form.data('omekaFormSubmitted', was || false);
             return;
         }
         var guard = function (e) {
@@ -423,6 +561,21 @@
                 window.jQuery(st.form).data('omekaFormSubmitted', true);
             }
         });
+        close();
+        standAside = true;
+        try {
+            link.click();
+        } finally {
+            window.setTimeout(function () {
+                standAside = false;
+            }, 0);
+        }
+    }
+
+    /** Follow the link without having been able to look: this file steps aside, but Omeka's
+     *  own "unsaved changes" warning is NOT switched off, so the browser still asks before
+     *  typed work is thrown away. (Until 1.0.4 a failed or slow check left without asking.) */
+    function leaveUnchecked(link) {
         close();
         standAside = true;
         try {
@@ -557,7 +710,12 @@
             + '</div>';
         box.querySelector('.rhc-body').innerHTML = html;
         var save = box.querySelector('.rhc-save');
-        save.addEventListener('click', go);
+        wireTick(box, save);
+        save.addEventListener('click', function () {
+            if (!save.disabled) {
+                go();
+            }
+        });
         box.querySelector('.rhc-cancel').addEventListener('click', stop);
         shade.addEventListener('click', function (ev) {
             if (ev.target === shade) {
@@ -573,7 +731,7 @@
                 stop();
             }
         });
-        save.focus();
+        (save.disabled ? box.querySelector('[data-rhc-stale-ok]') : save).focus();
     }
 
     function esc(s) {

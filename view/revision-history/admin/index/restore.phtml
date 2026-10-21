@@ -5,6 +5,7 @@
  * @var array $plan what putting it back would do (Planner::plan)
  * @var array $unsure values that could not be sent back exactly
  * @var int $later how many saves of this resource came after it
+ * @var bool $blocked an editor's own save that others have saved over: not theirs to put back
  * @var string $back the resource's history page
  * @var string $csrf
  */
@@ -58,7 +59,10 @@ echo $this->pageTitle($title, 1, 'Restore');
 <ul class="rh-changes"><?php foreach ($not as $c) echo $li($c); ?></ul>
 <?php endif; ?>
 
-<?php if ($unsure): ?>
+<?php if (!empty($blocked)): ?>
+<p class="rh-warn">This was saved again after you, so putting your save back could undo theirs too. Only a global administrator can put it back now.</p>
+<p><a class="button" href="<?= $e($back) ?>"><?= $e($this->translate('Back')) ?></a></p>
+<?php elseif ($unsure): ?>
 <p class="rh-warn">Some Vocab Sync values cannot be sent back exactly (two terms answer to the same words). Nothing will be put back; restore this item by hand.</p>
 <?php elseif ($ok): ?>
 <form method="post" class="rh-restore">

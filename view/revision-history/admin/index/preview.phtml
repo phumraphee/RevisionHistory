@@ -55,6 +55,22 @@ $isTerm = function (string $f) {
     <ul><li><?= $e($s->local($stale['modified'])->format('Y-m-d H:i')) ?></li></ul>
     <?php endif; ?>
     <p><?= $e($this->translate('Saving this form as it stands puts back what they changed: it is in the list below. To keep their work, cancel, keep a copy of what you typed, and open the page again.')) ?></p>
+    <?php
+    // Save stays off until this is ticked (1.0.5, confirm.js wireTick): who, and when, by
+    // name — "somebody saved" is what a person clicks past without reading.
+    $first = $stale['events'][0] ?? null;
+    $whenAt = $first ? (string) $first['happened_at'] : (string) $stale['modified'];
+    $at = $whenAt !== '' ? $s->local($whenAt) : null;
+    $today = (new \DateTime('now', $at ? $at->getTimezone() : null))->format('Y-m-d');
+    $atSay = $at ? $at->format($at->format('Y-m-d') === $today ? 'H:i' : 'j M H:i') : '';
+    $whoSay = $first ? (string) ($first['user_name'] ?: $this->translate('somebody')) : $this->translate('somebody');
+    $others = $first ? count($stale['events']) - 1 + (int) $stale['more'] : 0;
+    $tick = sprintf($this->translate('I have read that this undoes %1$s\'s save of %2$s'), $whoSay, $atSay);
+    if ($others > 0) {
+        $tick .= ' ' . sprintf($others === 1 ? $this->translate('and one other save') : $this->translate('and %d other saves'), $others);
+    }
+    ?>
+    <label class="rhc-stale-ok"><input type="checkbox" data-rhc-stale-ok> <?= $e($tick) ?></label>
 </div>
 <?php endif; ?>
 <?php if (!$changes): ?>

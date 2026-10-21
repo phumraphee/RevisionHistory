@@ -44,7 +44,8 @@ All screenshots are from a demo site with made-up people and objects.
 
 ## Where to find it
 
-- **Admin → Revision History** — everything, newest first, grouped by day.
+- **Admin → Resources → Revision History** (under Items and Batch Values since 1.0.5; it was
+  under Modules) — everything, newest first, grouped by day.
   Six buttons for the questions; filters for who, item (identifier, title or id),
   field, dates, and items / media / item sets.
 - **An item's admin page** — the last five changes in the sidebar, and a link to its whole history.
@@ -238,7 +239,11 @@ nothing. Never let a failure to write here fail the work itself.
 
 ## Putting a save back
 
-Global admin only, and never in one click.
+Never in one click. A global admin may put back any save. Since 1.0.5 a **site admin or editor
+may put back a save of their own**, as long as nobody has saved that item, media or item set
+since: *Restore* shows on their own entries, and the page refuses anybody else's save, or one
+that a later save has built on (putting it back could take the other person's work with it —
+that call is a global admin's). Bringing back something deleted stays global admin only.
 
 - **Restore** on an entry that changed an item, media or item set: the page shows what would be put
   back and what would not (*changed since* · *already there* · *no longer exists* · *cannot be put back
@@ -311,6 +316,22 @@ own submit handlers without submitting (jQuery's `triggerHandler`), because outs
 submit it still holds what the page was drawn with — which would read as every value removed.
 Leaving from here silences the browser's own question, so nobody is asked twice.
 
+**When the check cannot be made (1.0.5).** *Before you leave* asks the server what would be
+lost. If that request fails, or no answer comes within the wait (8 seconds), the link is still
+followed — but Omeka's own unsaved-changes warning is now left on, so the browser asks
+*Leave this page?* before typed work goes. Until 1.0.4 that path switched the warning off
+too, and a slow or unreachable server meant leaving without anybody asking. When the server
+answers that nothing would change, the form is left at once, as before.
+
+**Signed out while the form was open (1.0.5).** When the session has run out — the day's
+timeout, or somebody signing the account out from Active Sessions — Omeka answers the check
+with its sign-in page. Until 1.0.4 that page appeared inside *Before you save*, and Save then
+sent the form to the sign-in page and lost what was typed. The check now always says how many
+changes it found (`X-Revision-History-Changes`); an answer without that line, or one that was
+redirected, is taken as signed out: nothing is sent, the form stays as it is, and a box says so
+with a link to sign in again in a new tab. *Before you leave* treats it like a check that could
+not be made — the link is followed with Omeka's own warning left on.
+
 Closing the tab and the back button cannot be caught that way, and there the browser's warning
 is the only one there is. Omeka has one, but it decides from the form's named fields, and the
 boxes a value is typed into have none. So this marks the form as touched (`Omeka.markDirty`,
@@ -330,6 +351,16 @@ opened, and the check before saving says, above the list of changes, who saved i
 and how. The list below it already shows their work being undone; this says why. Saving is
 still the person's choice — the dialog only says so. A form that would change nothing is not
 asked about, since saving it loses nothing.
+
+**Read before saving over it (1.0.5).** When the check names a save made since the form was
+opened, *Save* stays off until a box is ticked that says whose save and when: *I have read that
+this undoes Anna's save of 14:02* (and how many others). It is not a refusal — saving over it
+is still the person's choice — but not a press made without reading. And where the warning is
+on, a check that **cannot be made** (the request fails, or no answer comes within the wait) is
+no longer taken as "nobody else saved": the box says *Could not check whether somebody else saved
+this*, offers **Check again** (nothing is reloaded, nothing typed is lost), and *Save anyway*
+needs the same tick. Until 1.0.4 a failed check saved at once. With the warning switched off
+(`revision_history_confirm_stale`), a failed check still lets the save through as before.
 
 **Modules → Revision History → Configure** turns it off (`revision_history_confirm`), and the
 warning on its own (`revision_history_confirm_stale`). Omeka lets only a
@@ -381,7 +412,9 @@ Omeka S 4.x (Doctrine DBAL 2.11 or newer, which Omeka 4 ships). PHP 7.4+. MySQL 
 
 ## Who may see it
 
-Global admin, site admin, editor, reviewer. Copying, checking and putting a save back: global admin.
+Global admin, site admin, editor, reviewer. Copying, checking and bringing back what was deleted:
+global admin. Putting a save back: global admin, and a site admin or editor for their own save
+while nobody has saved over it (1.0.5).
 
 ## Which address is recorded
 

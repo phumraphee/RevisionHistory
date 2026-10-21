@@ -161,10 +161,10 @@ class IndexController extends AbstractActionController
         // the thing this dialog exists to catch.
         $changes = array_merge($changes, $this->mediaGoing($before, $after));
 
-        // A save that changes nothing has nothing to show: the form goes through.
-        if (!$changes) {
-            $this->getResponse()->getHeaders()->addHeaderLine('X-Revision-History-Changes', '0');
-        }
+        // How many changes, always (1.0.5). "0" lets the form go through with nothing to
+        // show; and an answer WITHOUT this line is not this page at all — Omeka's sign-in
+        // page, when the session ran out — which confirm.js must not show as the save.
+        $this->getResponse()->getHeaders()->addHeaderLine('X-Revision-History-Changes', (string) count($changes));
 
         $leaving = !empty($post['revision_history_leaving']);
         $view = new ViewModel([
@@ -304,10 +304,27 @@ class IndexController extends AbstractActionController
         return $rows;
     }
 
+    /** The account asking: [id, role], or [0, ''] when nobody is signed in. */
+    private function whoAmI(): array
+    {
+        try {
+            $identity = $this->services->get('Omeka\AuthenticationService')->getIdentity();
+            if ($identity) {
+                return [(int) $identity->getId(), (string) $identity->getRole()];
+            }
+        } catch (\Throwable $e) {
+        }
+        return [0, ''];
+    }
+
     /**
-     * Put one save back. Global administrators only (the ACL gives the others browse,
-     * item and export), and never in one click: this page shows what would be put back
+     * Put one save back, and never in one click: this page shows what would be put back
      * and what would not, and nothing is written until it is confirmed.
+     *
+     * Global administrators may put back any save. Since 1.0.5 a site administrator or
+     * editor may put back a save of their OWN, while nobody has saved that resource
+     * since — the ACL (Module::OWN_RESTORERS) lets them reach this page, and these lines
+     * are what hold them to their own work.
      */
     public function restoreAction()
     {
@@ -320,6 +337,12 @@ class IndexController extends AbstractActionController
         }
         $rid = (int) $event['resource_id'];
         $back = $this->url()->fromRoute('admin/revision-history', ['action' => 'item', 'id' => $event['resource_kind'] === 'media' && $event['item_id'] ? (int) $event['item_id'] : $rid]);
+        [$me, $role] = $this->whoAmI();
+        $global = $role === 'global_admin';
+        if (!$global && ($me === 0 || (int) $event['user_id'] !== $me)) {
+            $this->messenger()->addWarning('You can put back only your own saves. A global administrator can put back this one.');
+            return $this->redirect()->toUrl($back);
+        }
         $changes = [];
         foreach ($conn->fetchAllAssociative('SELECT op, field, property_id, before_json, after_json FROM revision_history_change WHERE event_id = ? ORDER BY ord', [$id]) as $c) {
             $changes[] = [
@@ -345,8 +368,15 @@ class IndexController extends AbstractActionController
             "SELECT COUNT(*) FROM revision_history_event WHERE resource_kind IN ('item','media','item_set') AND resource_id = ? AND id > ? AND action <> 'created'",
             [$rid, $id]
         );
+        // Somebody saved it after you: putting yours back could take theirs with it, and
+        // weighing that is a global administrator's call.
+        $blocked = !$global && $later > 0;
 
         if ($this->getRequest()->isPost()) {
+            if ($blocked) {
+                $this->messenger()->addWarning('Nothing was put back: this was saved again after you. A global administrator can put it back.');
+                return $this->redirect()->toUrl($back);
+            }
             $csrf = new \Laminas\Validator\Csrf(['name' => 'revision_history_csrf', 'timeout' => 3600]);
             if (!$csrf->isValid($this->params()->fromPost('revision_history_csrf', ''))) {
                 $this->messenger()->addError('The form expired. Nothing was put back — press the button again.');
@@ -392,6 +422,7 @@ class IndexController extends AbstractActionController
             'plan' => $plan,
             'unsure' => $built['unsure'],
             'later' => $later,
+            'blocked' => $blocked,
             'back' => $back,
             'csrf' => (new \Laminas\Validator\Csrf(['name' => 'revision_history_csrf', 'timeout' => 3600]))->getHash(),
         ]);
@@ -525,16 +556,8 @@ class IndexController extends AbstractActionController
     public function refusedAction()
     {
         $conn = $this->services->get('Omeka\Connection');
-        $user = null;
-        $role = '';
-        try {
-            $identity = $this->services->get('Omeka\AuthenticationService')->getIdentity();
-            if ($identity) {
-                $user = (int) $identity->getId();
-                $role = (string) $identity->getRole();
-            }
-        } catch (\Throwable $e) {
-        }
+        [$user, $role] = $this->whoAmI();
+        $user = $user ?: null;
         $mine = $role !== 'global_admin';
         $rows = [];
         try {

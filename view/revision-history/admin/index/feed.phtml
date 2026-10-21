@@ -120,8 +120,14 @@ $count = function (int $n, string $kind) use ($s) {
     return $n . ' ' . ($kind === 'media' || $n === 1 ? $w : $w . 's');
 };
 
-// Putting a save back is for global administrators only (the ACL), and asks first.
+// Putting a save back asks first. Global administrators may put back any save; since
+// 1.0.5 a site administrator or editor sees Restore on their own saves (restoreAction()
+// holds them to that). Bringing back something deleted stays a global administrator's.
 $canRestore = $this->userIsAllowed(\RevisionHistory\Controller\Admin\IndexController::class, 'restore');
+$canRevive = $this->userIsAllowed(\RevisionHistory\Controller\Admin\IndexController::class, 'revive');
+$meNow = $this->identity();
+$meId = $meNow ? (int) $meNow->getId() : 0;
+$meGlobal = $meNow && $meNow->getRole() === 'global_admin';
 
 $day = null;
 ?>
@@ -329,9 +335,9 @@ $day = null;
             }
         } ?></span>
         <?php if ($e['note'] && $changes && $isResource): ?><span class="rh-note-foot"><?= $s->e($e['note']) ?></span><?php endif; ?>
-        <?php if (!$isRun && $changes && \RevisionHistory\Restore\Restorer::can($e) && $canRestore): ?>
+        <?php if (!$isRun && $changes && \RevisionHistory\Restore\Restorer::can($e) && $canRestore && ($meGlobal || ($meId && (int) $e['user_id'] === $meId))): ?>
         <a class="rh-restore-link" href="<?= $s->e($this->url('admin/revision-history', ['action' => 'restore', 'id' => (int) $e['id']])) ?>"><?= $s->e($this->translate('Restore')) ?></a>
-        <?php elseif (!$isRun && \RevisionHistory\Restore\Reviver::can($e) && $canRestore && !$exists): ?>
+        <?php elseif (!$isRun && \RevisionHistory\Restore\Reviver::can($e) && $canRevive && !$exists): ?>
         <a class="rh-restore-link" href="<?= $s->e($this->url('admin/revision-history', ['action' => 'revive', 'id' => (int) $e['id']])) ?>"><?= $s->e($this->translate('Restore')) ?></a>
         <?php endif; ?>
         <?php if ($showItem && $isResource && !$isRun): ?>
