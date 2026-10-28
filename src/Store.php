@@ -221,20 +221,28 @@ class Store
      * done at once took place between the moment its change set was made and the moment
      * it was finished, by the person who owns it. Only rows with no run yet are touched,
      * so doing this again changes nothing. Without Batch Values' table there is nothing to read.
+     *
+     * Every pass of the Watchman runs install(), and with it this; each UPDATE reads the
+     * whole history (about a second each). Saves made since 1.5.2 note their run
+     * themselves, so once a pass finds nothing left to fix, that is noted
+     * (meta runs_before_done) and later passes stop here. To run it again, delete that row.
      */
     public function runsBefore(): void
     {
         try {
+            if ($this->meta('runs_before_done')) {
+                return;
+            }
             if (!$this->conn->fetchOne("SHOW TABLES LIKE 'batch_values_change_set'")) {
                 return;
             }
-            $this->conn->executeStatement(
+            $n = (int) $this->conn->executeStatement(
                 "UPDATE `revision_history_event` e JOIN `batch_values_change_set` s
                     ON s.`job_id` IS NOT NULL AND e.`via_detail` LIKE CONCAT('#', s.`job_id`, ' BatchValues%')
                     SET e.`run_key` = CONCAT('bv:', s.`id`)
                   WHERE e.`run_key` = '' AND e.`via` = 'job'"
             );
-            $this->conn->executeStatement(
+            $n += (int) $this->conn->executeStatement(
                 "UPDATE `revision_history_event` e JOIN `batch_values_change_set` s
                     ON s.`job_id` IS NULL AND e.`user_id` = s.`owner_id`
                    AND e.`happened_at` >= s.`created` - INTERVAL 1 SECOND
@@ -242,6 +250,9 @@ class Store
                     SET e.`run_key` = CONCAT('bv:', s.`id`)
                   WHERE e.`run_key` = '' AND e.`via` = 'admin' AND e.`via_detail` LIKE '/admin/batch-values/%'"
             );
+            if ($n === 0) {
+                $this->setMeta('runs_before_done', gmdate('Y-m-d H:i:s'));
+            }
         } catch (\Throwable $e) {
         }
     }
