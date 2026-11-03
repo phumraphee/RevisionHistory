@@ -4,14 +4,44 @@
  * @var \Laminas\View\Renderer\PhpRenderer $this
  * @var \Omeka\Api\Representation\AbstractResourceEntityRepresentation $resource
  * @var array $page
+ * @var array|null $added the media's "created" event (media pages only)
+ * @var string|null $since when history of media began, if this media is older
  */
 $this->headLink()->appendStylesheet($this->assetUrl('css/history.css', 'RevisionHistory'));
 $id = (int) $resource->id();
 $s = $this->revisionHistoryShow();
 $s->prepare($page['events']);
+$added = $added ?? null;
+$since = $since ?? null;
+// Who did it: a script runs as the admin account, so say it was a script, not that person.
+$who = function (array $ev) {
+    $name = (string) ($ev['user_name'] ?? '');
+    if (($ev['via'] ?? '') === 'cli') return $name !== '' ? 'a script (' . $name . ')' : 'a script';
+    return $name !== '' ? $name : 'no one signed in';
+};
+// Which file: the media's title as written down then, or the end of its address.
+$fileName = function (array $ev) {
+    $t = trim((string) ($ev['title'] ?? ''));
+    if ($t === '') return '#' . (int) $ev['resource_id'];
+    if (preg_match('~^[a-z][a-z0-9+.-]*://~i', $t)) {
+        $path = (string) parse_url($t, PHP_URL_PATH);
+        $base = rawurldecode(basename($path));
+        if ($base !== '') $t = $base;
+    }
+    return mb_strlen($t) > 48 ? mb_substr($t, 0, 47) . '…' : $t;
+};
 ?>
 <div class="meta-group rh-side">
     <h4>History</h4>
+    <?php if ($resource->resourceName() === 'media'): ?>
+    <div class="value rh-side-added">
+        <?php if ($added): ?>
+        Added by <?= $s->e($who($added)) ?> · <?= $s->e($s->local($added['happened_at'])->format('j M Y H:i')) ?>
+        <?php elseif ($since): ?>
+        Added before <?= $s->e($s->local($since)->format('j M Y')) ?>, when this history began: who added it was not written down. The owner shown is the item’s owner.
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
     <?php if (!$page['events']): ?>
     <div class="value">Nothing recorded yet.</div>
     <?php endif; ?>
@@ -25,8 +55,8 @@ $s->prepare($page['events']);
         } ?>
     <div class="value">
         <span class="rh-side-when"><?= $s->e($when->format('j M Y H:i')) ?></span><br>
-        <?= $s->e($ev['user_name'] !== '' ? $ev['user_name'] : 'no one signed in') ?>
-        <?= $s->e($s->verb($ev['action'])) ?><?= (int) $ev['resource_id'] !== $id ? ' media' : '' ?><?= $n ? ' — ' . $s->e(implode(', ', $n)) : '' ?>
+        <?= $s->e($who($ev)) ?>
+        <?= $s->e($s->verb($ev['action'])) ?><?= (int) $ev['resource_id'] !== $id ? ' media ' . $s->e($fileName($ev)) : '' ?><?= $n ? ' — ' . $s->e(implode(', ', $n)) : '' ?>
     </div>
     <?php endforeach; ?>
     <div class="value"><a href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => $resource->resourceName() === 'media' && $resource->item() ? $resource->item()->id() : $id])) ?>">Whole history →</a></div>

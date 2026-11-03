@@ -386,12 +386,29 @@ class Module extends AbstractModule
         try {
             $reader = new Reader($services->get('Omeka\Connection'));
             $page = $reader->events(['resource' => $resource->id()], (string) ($services->get('Omeka\Settings')->get('time_zone') ?: 'UTC'), 5);
+            // A media page also says who added the file: Omeka's "Owner" was the item's
+            // owner for every file added before 2026-11-03, whoever uploaded it.
+            $added = null;
+            $since = null;
+            if ($resource->resourceName() === 'media') {
+                $conn = $services->get('Omeka\Connection');
+                $added = $conn->fetchAssociative(
+                    "SELECT happened_at, user_name, via FROM revision_history_event
+                     WHERE resource_kind = 'media' AND resource_id = ? AND action = 'created' ORDER BY id DESC LIMIT 1",
+                    [(int) $resource->id()]
+                ) ?: null;
+                if (!$added) {
+                    $since = $conn->fetchOne("SELECT MIN(happened_at) FROM revision_history_event WHERE resource_kind = 'media'") ?: null;
+                }
+            }
         } catch (\Throwable $e) {
             return;
         }
         echo $view->partial('revision-history/admin/index/sidebar', [
             'resource' => $resource,
             'page' => $page,
+            'added' => $added,
+            'since' => $since,
         ]);
     }
 }

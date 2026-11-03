@@ -49,6 +49,11 @@ All screenshots are from a demo site with made-up people and objects.
   Six buttons for the questions; filters for who, item (identifier, title or id),
   field, dates, and items / media / item sets.
 - **An item's admin page** — the last five changes in the sidebar, and a link to its whole history.
+  Since 1.0.8 a change to one of the item's media names the file, and a change made from the command
+  line reads "a script (name)", since scripts usually run as an admin account. A **media's page** also
+  says who added the file and when — Omeka's *Owner* of a media is the item's owner at the time the file
+  was added, which is often not the person who uploaded it — or, for files added before the history
+  began, that this was not written down.
 - **Revision History → Copy the history kept by History Log and Activity Log** (global admin).
 
 ## How it records
