@@ -239,6 +239,11 @@ nothing. Never let a failure to write here fail the work itself.
 
 ## Putting a save back
 
+**Links and their other side (1.0.7).** A restore asks the Inverse Properties module, when it is
+installed, to keep the other side of each link it puts back — as Omeka's own item form does on every
+save. That module only ever adds, so a link that a restore takes away keeps its other side, as after
+the form.
+
 Never in one click. A global admin may put back any save. Since 1.0.5 a **site admin or editor
 may put back a save of their own**, as long as nobody has saved that item, media or item set
 since: *Restore* shows on their own entries, and the page refuses anybody else's save, or one

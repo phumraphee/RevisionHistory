@@ -336,7 +336,7 @@ class Reviver
                     return ['o:id' => $s];
                 }, $state['sites'] ?? []);
             }
-            $api->update(Restorer::apiName($kind), $id, $content, [], ['isPartial' => true, 'collectionAction' => 'replace']);
+            $api->update(Restorer::apiName($kind), $id, Restorer::withInverses($content), [], ['isPartial' => true, 'collectionAction' => 'replace']);
             $this->mark($id, $note, $since);
             $lines[] = sprintf('%s #%d is back, with %d value%s.', ucfirst(str_replace('_', ' ', $kind)), $id, $this->count($state), $this->count($state) === 1 ? '' : 's');
         }
@@ -385,7 +385,7 @@ class Reviver
                 continue;
             }
             $since = $this->lastEvent();
-            $api->update(Restorer::apiName($l['event']['resource_kind']), $rid, $built['content'], [], ['isPartial' => true, 'collectionAction' => 'replace']);
+            $api->update(Restorer::apiName($l['event']['resource_kind']), $rid, Restorer::withInverses($built['content']), [], ['isPartial' => true, 'collectionAction' => 'replace']);
             $this->mark($rid, $note, $since, false);
             $lines[] = sprintf('The link from #%d (%s) is back.', $rid, (string) $l['event']['title']);
         }

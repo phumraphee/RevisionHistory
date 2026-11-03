@@ -391,7 +391,7 @@ class IndexController extends AbstractActionController
                 return $this->redirect()->toRoute('admin/revision-history', ['action' => 'restore', 'id' => $id]);
             }
             try {
-                $this->api()->update(\RevisionHistory\Restore\Restorer::apiName($event['resource_kind']), $rid, $built['content'], [], [
+                $this->api()->update(\RevisionHistory\Restore\Restorer::apiName($event['resource_kind']), $rid, \RevisionHistory\Restore\Restorer::withInverses($built['content']), [], [
                     'isPartial' => true,
                     'collectionAction' => 'replace',
                 ]);

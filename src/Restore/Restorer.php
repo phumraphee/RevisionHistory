@@ -33,6 +33,19 @@ class Restorer
             && in_array($event['resource_kind'] ?? '', ['item', 'media', 'item_set'], true);
     }
 
+    /**
+     * The content of a restore, asking the Inverse Properties module to keep the other side of
+     * each link in it — as Omeka's own item form does on every save, with a hidden field. A link
+     * put back gets its link back on the record it points at, if that one has none. (The module
+     * only ever adds: a link that a restore takes away keeps its other side, as after the form.)
+     * Without that module the key means nothing and changes nothing.
+     */
+    public static function withInverses(array $content): array
+    {
+        $content['inverse_properties_set_inverses'] = 1;
+        return $content;
+    }
+
     public static function apiName(string $kind): string
     {
         return ['item' => 'items', 'media' => 'media', 'item_set' => 'item_sets'][$kind] ?? 'items';
