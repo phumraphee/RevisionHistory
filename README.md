@@ -79,6 +79,7 @@ the admin form, the REST API, batch edit, background jobs, other modules that us
 - A write that cannot go through Omeka's entities (a module's or a page's own SQL) can be written down like a
   save: `\RevisionHistory\Outside::fromServices($services)->around([$id, …], $write, $note)` reads the
   resources before and after the write and records what changed, with who and how (1.0.10).
+- Another module can say what a change means, in a few words shown beside the values: see "Describing a change" (1.0.11).
 - A note on a value (value annotation) is part of that value: changing the note is an edit of that
   value — a note added, its text changed, one of its values made private or public, a value added to it
   or taken out of it, the note removed. The page names the value it hangs on and says, by the note's
@@ -246,6 +247,46 @@ is drawn as *empty*, with "changed in a way this page cannot show" beside it.
 Where the change also altered the media or resource row (a new `sha256` and `size`, say),
 write the entry and the data check will see the difference is accounted for and say
 nothing. Never let a failure to write here fail the work itself.
+
+## Describing a change
+
+Some changes mean more than their two sides show: a flag inside a value's JSON, a field of its own
+in a media's data, written by another module. Since 1.0.11 that module can say, in a few words,
+what such a change means, and the history shows it beside the values.
+
+Before an edit is drawn — on the history pages, an item's card, the dialog before a save — the
+event `revision_history.describe` is sent on the identifier `RevisionHistory`, with these
+parameters:
+
+| Parameter | What it holds |
+|---|---|
+| `field` | the field, as a term (`dcterms:subject`) or a name (`o-module-image_annotate:annotation`, `o:media_type` …) |
+| `op` | `edited` |
+| `before`, `after` | the two sides, exactly as written down (for a value: `type`, `value`, `uri`, `vr`, `lang`, `pub`, `note`; for an Image Annotate annotation also `raw`, the annotation as the module keeps it) |
+| `change` | the whole line of the history |
+| `entry` | the resource it is about (`resource_id`, `resource_kind`, `item_id`), when the page knows it; `null` in the dialog before a save |
+
+A listener answers with a short phrase, either by returning it or by setting the parameter
+`description`. The first answer wins. Nobody answers, or the answer is empty: the line is drawn as
+it always was. A listener that throws is ignored. The answer is shown as text, never as HTML.
+
+```php
+// In your module's attachListeners():
+$sharedEventManager->attach('RevisionHistory', 'revision_history.describe', function ($event) {
+    if ($event->getParam('field') !== 'o-module-image_annotate:annotation') {
+        return null;
+    }
+    $was = $event->getParam('before')['raw']['example:hidden'] ?? false;
+    $now = $event->getParam('after')['raw']['example:hidden'] ?? false;
+    if ($was === $now) {
+        return null;
+    }
+    return $now ? 'Annotation hidden' : 'Annotation shown';
+});
+```
+
+The history itself is not changed by this: what was written down stays as it was, and a listener
+added or removed later changes only how the line reads.
 
 ## Putting a save back
 

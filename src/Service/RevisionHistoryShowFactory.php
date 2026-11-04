@@ -16,8 +16,21 @@ class RevisionHistoryShowFactory implements FactoryInterface
                 return self::menuLabel($services, $path);
             },
             (string) $services->get('Omeka\Settings')->get('revision_history_title_term', 'dcterms:title'),
-            (string) $services->get('Omeka\Settings')->get('revision_history_accession_term', 'dcterms:identifier')
+            (string) $services->get('Omeka\Settings')->get('revision_history_accession_term', 'dcterms:identifier'),
+            self::events($services)
         );
+    }
+
+    /** Other modules hear revision_history.describe on the identifier RevisionHistory (1.0.11). */
+    private static function events($services)
+    {
+        try {
+            $events = $services->get('EventManager');
+            $events->setIdentifiers(['RevisionHistory', RevisionHistoryShow::class]);
+            return $events;
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**

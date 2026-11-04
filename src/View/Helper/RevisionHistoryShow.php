@@ -48,9 +48,16 @@ class RevisionHistoryShow extends AbstractHelper
     /** @var bool|null whether Batch Values keeps its record here */
     private $hasBatchValues;
 
-    public function __construct(Connection $conn, string $tz, ?callable $menuLabel = null, string $titleTerm = 'dcterms:title', string $accessionTerm = 'dcterms:identifier')
+    /** @var \Laminas\EventManager\EventManagerInterface|null asked to describe a change (1.0.11) */
+    private $events;
+
+    /** @var array<int, array> the entries prepared for this page, by id: which resource each is about */
+    private $entries = [];
+
+    public function __construct(Connection $conn, string $tz, ?callable $menuLabel = null, string $titleTerm = 'dcterms:title', string $accessionTerm = 'dcterms:identifier', $events = null)
     {
         $this->conn = $conn;
+        $this->events = $events;
         $this->titleTerm = $titleTerm;
         $this->accessionTerm = $accessionTerm;
         $this->tz = $tz ?: 'UTC';
@@ -70,6 +77,17 @@ class RevisionHistoryShow extends AbstractHelper
     /** Look up, in a handful of queries, every word the page below will need. */
     public function prepare(array $events): void
     {
+        foreach ($events as $e) {
+            if (isset($e['id'])) {
+                $this->entries[(int) $e['id']] = [
+                    'id' => (int) $e['id'],
+                    'resource_id' => isset($e['resource_id']) ? (int) $e['resource_id'] : null,
+                    'resource_kind' => (string) ($e['resource_kind'] ?? ''),
+                    'item_id' => isset($e['item_id']) ? (int) $e['item_id'] : null,
+                    'action' => (string) ($e['action'] ?? ''),
+                ];
+            }
+        }
         $terms = [];
         $res = [];
         $tpl = [];
@@ -890,7 +908,60 @@ class RevisionHistoryShow extends AbstractHelper
         return '';
     }
 
+    /**
+     * What another module says an edit means, in a few words, or ''.
+     *
+     * The history knows that a value changed, and shows both sides; what the change
+     * means is sometimes known only to the module that wrote it — a flag inside a
+     * value's JSON, a field of its own in a media's data. Before an edit is drawn,
+     * the event revision_history.describe is sent (identifier RevisionHistory), with
+     * field, op, before, after, change (the whole row) and entry (the resource it is
+     * about, when the page knows it). A listener that knows answers with a short
+     * phrase — by returning it, or by setting the parameter "description" — and the
+     * line shows it beside the values. Nobody answers: the line is drawn as before.
+     * See README, "Describing a change".
+     */
+    public function describe(array $c): string
+    {
+        if (!$this->events) {
+            return '';
+        }
+        try {
+            $entry = isset($c['event_id']) ? ($this->entries[(int) $c['event_id']] ?? null) : null;
+            $event = new \Laminas\EventManager\Event('revision_history.describe', $this, [
+                'field' => (string) ($c['field'] ?? ''),
+                'op' => (string) ($c['op'] ?? ''),
+                'before' => $c['before'] ?? null,
+                'after' => $c['after'] ?? null,
+                'change' => $c,
+                'entry' => $entry,
+                'description' => '',
+            ]);
+            $said = '';
+            $results = $this->events->triggerEventUntil(function ($r) {
+                return is_string($r) && trim($r) !== '';
+            }, $event);
+            $last = $results->last();
+            if ($results->stopped() && is_string($last)) {
+                $said = $last;
+            } elseif (is_string($event->getParam('description'))) {
+                $said = $event->getParam('description');
+            }
+            $said = trim(preg_replace('/\s+/u', ' ', $said));
+            return mb_strlen($said) > 200 ? mb_substr($said, 0, 199) . '…' : $said;
+        } catch (\Throwable $e) {
+            return '';
+        }
+    }
+
     public function edit(array $c): string
+    {
+        $said = ($c['op'] ?? '') === 'edited' ? $this->describe($c) : '';
+        $body = $this->editBody($c);
+        return $said === '' ? $body : '<span class="rh-what rh-said">' . $this->e($said) . '</span> ' . $body;
+    }
+
+    private function editBody(array $c): string
     {
         $b = $c['before'];
         $a = $c['after'];
