@@ -74,6 +74,8 @@ the admin form, the REST API, batch edit, background jobs, other modules that us
   order of an item's media are recorded too; for an item set, whether it is open; for a media, its
   source, alt text, language, media type, HTML, and its file by fingerprint (sha256) and size.
 - What a resource held when it was deleted is also kept whole (`revision_history_snapshot`), so it can be made again.
+- A media added to an item or taken from it writes the item down again too (its list of media, and its primary
+  media when the database empties it), so the data check does not report a change nobody made (1.0.9).
 - A note on a value (value annotation) is part of that value: changing the note is an edit of that
   value — a note added, its text changed, one of its values made private or public, a value added to it
   or taken out of it, the note removed. The page names the value it hangs on and says, by the note's

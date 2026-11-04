@@ -197,9 +197,26 @@ class Recorder
                 $imageNote($e);
             }
 
+            // The item a media is added to or taken from: its list of media, and its
+            // primary media when the database empties it (ON DELETE SET NULL), change in
+            // the same save. The media's own entry says what happened; the item is only
+            // written down again, so the data check does not see a change nobody made.
+            $parents = [];
+            $parentOf = function ($e) use (&$parents) {
+                if ($e instanceof Media) {
+                    try {
+                        $item = $e->getItem();
+                        if ($item && $item->getId()) {
+                            $parents[(int) $item->getId()] = true;
+                        }
+                    } catch (\Throwable $ignored) {
+                    }
+                }
+            };
             foreach ($uow->getScheduledEntityInsertions() as $e) {
                 if ($isResource($e)) {
                     $created[] = $e;
+                    $parentOf($e);
                 } elseif ($e instanceof Value) {
                     $fromValue($e);
                 }
@@ -241,6 +258,7 @@ class Recorder
             foreach ($uow->getScheduledEntityDeletions() as $e) {
                 if ($isResource($e)) {
                     $deleted[$e->getId()] = true;
+                    $parentOf($e);
                 } elseif ($e instanceof Value) {
                     $fromValue($e);
                 } elseif ($e instanceof ValueAnnotation && $e->getId()) {
@@ -355,6 +373,11 @@ class Recorder
                 }
             }
             unset($touched[0]);
+            foreach (array_keys($parents) as $id) {
+                if (isset($touched[$id]) || isset($deleted[$id]) || isset($this->removing[$id])) {
+                    unset($parents[$id]);
+                }
+            }
 
             if (!$created && !$touched && !$deleted && !$others && !$levels) {
                 $this->stack[] = ['level' => $level, 'skip' => true];
@@ -374,8 +397,9 @@ class Recorder
                 'deleted' => array_keys($deleted),
                 'others' => $others,
                 'levels' => $levels ? Levels::read($conn, array_keys($levels)) : [],
-                'before' => $reader->read(array_merge(array_keys($touched), array_keys($deleted))),
-                'stale' => $this->stale($conn, array_keys($touched)),
+                'parents' => array_keys($parents),
+                'before' => $reader->read(array_merge(array_keys($touched), array_keys($deleted), array_keys($parents))),
+                'stale' => $this->stale($conn, array_merge(array_keys($touched), array_keys($parents))),
             ];
         } catch (\Throwable $e) {
             $this->stack[] = ['level' => isset($level) ? $level : 0, 'skip' => true];
@@ -566,7 +590,8 @@ class Recorder
                 foreach ($frame['stale'] ?? [] as $sid) {
                     $watchman->reportStale((int) $sid, $frame['before'][$sid] ?? null);
                 }
-                $watchman->afterSave(array_keys($after), $frame['deleted'], $after);
+                $parentsNow = ($frame['parents'] ?? []) ? $this->reader($conn)->read($frame['parents']) : [];
+                $watchman->afterSave(array_merge(array_keys($after), array_keys($parentsNow)), $frame['deleted'], $after + $parentsNow);
             } catch (\Throwable $e) {
                 $this->failed('after, writing down the new state', $e);
             }
