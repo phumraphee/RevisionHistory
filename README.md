@@ -76,6 +76,9 @@ the admin form, the REST API, batch edit, background jobs, other modules that us
 - What a resource held when it was deleted is also kept whole (`revision_history_snapshot`), so it can be made again.
 - A media added to an item or taken from it writes the item down again too (its list of media, and its primary
   media when the database empties it), so the data check does not report a change nobody made (1.0.9).
+- A write that cannot go through Omeka's entities (a module's or a page's own SQL) can be written down like a
+  save: `\RevisionHistory\Outside::fromServices($services)->around([$id, …], $write, $note)` reads the
+  resources before and after the write and records what changed, with who and how (1.0.10).
 - A note on a value (value annotation) is part of that value: changing the note is an edit of that
   value — a note added, its text changed, one of its values made private or public, a value added to it
   or taken out of it, the note removed. The page names the value it hangs on and says, by the note's
