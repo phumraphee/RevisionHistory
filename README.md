@@ -82,10 +82,11 @@ the admin form, the REST API, batch edit, background jobs, other modules that us
 - Another module can say what a change means, in a few words shown beside the values: see "Describing a change" (1.0.11).
 - A note on a value (value annotation) is part of that value: changing the note is an edit of that
   value — a note added, its text changed, one of its values made private or public, a value added to it
-  or taken out of it, the note removed. The page names the value it hangs on and says, by the note's
-  field, what happened (*Value annotations: Description Public → Private*, *Date added*); each note value shows its
-  language and *Private* as a value of its own field does (1.0.3). Putting the save back puts the note
-  back with the value.
+  or taken out of it, the note removed. The page names the value it hangs on and says what happened as a
+  note on that value's field, with the note's words (*Note on Dimensions: added 'A4.'*, *Note on Year (Source):
+  edited '1961' → 'c. 1961'*, *Note on Title (Description): 'note' Public → Private*; the note's own field in
+  brackets when it is not the value's) (1.0.12); each note value shows its language and *Private* as a value of
+  its own field does (1.0.3). Putting the save back puts the note back with the value.
 - Image Annotate annotations (table `image_annotate_media`) are followed by each annotation's own id:
   added · edited (body text or selector) · removed, shown under the field name *Image Annotate* and the
   module's own key `o-module-image_annotate:annotation`. A deleted media keeps the annotations it had.

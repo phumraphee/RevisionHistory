@@ -225,29 +225,42 @@ $withNotes = function (string $text, array $notes) {
     return v($text) + ['note' => $notes];
 };
 // Called through this, so that against a version without it the checks fail one by one.
-$words = function (array $b, array $a) use ($show) {
-    return method_exists($show, 'noteWords') ? $show->noteWords($b, $a) : '(no noteWords)';
+// The value's field is dcterms:title; the notes are in another field unless said (1.0.12: "Note on …").
+$words = function (array $b, array $a, string $field = 'dcterms:title') use ($show) {
+    return method_exists($show, 'noteWords') ? $show->noteWords($b, $a, $field) : '(no noteWords)';
 };
-check('a value of an annotation made private is said so, by its field',
+check('a value of an annotation made private is said so, with its words',
     $words($withNotes('A', [$n('dcterms:description', 'n')]), $withNotes('A', [$n('dcterms:description', 'n', ['pub' => 0])])),
-    'Value annotations: dcterms:description Public → Private');
+    "Note on dcterms:title (dcterms:description): 'n' Public → Private");
 check('…and made public again',
     $words($withNotes('A', [$n('dcterms:description', 'n', ['pub' => 0])]), $withNotes('A', [$n('dcterms:description', 'n')])),
-    'Value annotations: dcterms:description Private → Public');
+    "Note on dcterms:title (dcterms:description): 'n' Private → Public");
 check('an annotation added to a value that had none',
     $words(v('A'), $withNotes('A', [$n('dcterms:description', 'n')])),
-    'Value annotations: dcterms:description added');
+    "Note on dcterms:title (dcterms:description): added 'n'");
 check('one edited, one removed, one left as it was',
     $words(
         $withNotes('A', [$n('dcterms:description', 'n'), $n('dcterms:date', '1961'), $n('dcterms:source', 's')]),
         $withNotes('A', [$n('dcterms:description', 'n2'), $n('dcterms:source', 's')])
     ),
-    'Value annotations: dcterms:description edited · dcterms:date removed');
+    "Note on dcterms:title (dcterms:description): edited 'n' → 'n2' · Note on dcterms:title (dcterms:date): removed '1961'");
 check('its language',
     $words($withNotes('A', [$n('dcterms:description', 'n')]), $withNotes('A', [$n('dcterms:description', 'n', ['lang' => 'th'])])),
-    'Value annotations: dcterms:description language — → th');
-check('differs() says the same words', $show->differs($withNotes('A', [$n('dcterms:description', 'n')]), $withNotes('A', [])),
-    'Value annotations: dcterms:description removed');
+    "Note on dcterms:title (dcterms:description): 'n' language — → th");
+check('a note written in the value\'s own field names the field once',
+    $words(v('A'), $withNotes('A', [$n('dcterms:title', 'A4.')])),
+    "Note on dcterms:title: added 'A4.'");
+check('the value\'s field not known: the note\'s own',
+    $words(v('A'), $withNotes('A', [$n('dcterms:date', '1961')]), ''),
+    "Note (dcterms:date): added '1961'");
+check('a long note is cut, on one line',
+    $words(v('A'), $withNotes('A', [$n('dcterms:title', str_repeat('word ', 30) . "\nend")])),
+    "Note on dcterms:title: added '" . rtrim(mb_substr(str_repeat('word ', 30), 0, 79)) . "…'");
+check('a note that links a resource: its number',
+    $words(v('A'), $withNotes('A', [['f' => 'dcterms:relation', 'type' => 'resource', 'value' => null, 'uri' => null, 'vr' => 12, 'lang' => null, 'pub' => 1]])),
+    "Note on dcterms:title (dcterms:relation): added '#12'");
+check('differs() says the same words', $show->differs($withNotes('A', [$n('dcterms:description', 'n')]), $withNotes('A', []), 'dcterms:title'),
+    "Note on dcterms:title (dcterms:description): removed 'n'");
 $priv = $show->notes($withNotes('A', [$n('dcterms:description', 'n', ['pub' => 0, 'lang' => 'th'])]));
 check('a private annotation value is marked Private on the page', strpos($priv, '<span class="rh-private">Private</span>') !== false, true);
 check('…and its language is shown', strpos($priv, '<span class="rh-lang">th</span>') !== false, true);
@@ -255,7 +268,7 @@ $both = $show->edit(['op' => 'edited', 'field' => 'dcterms:title',
     'before' => $withNotes('A', [$n('dcterms:description', 'n')]), 'after' => $withNotes('A', [$n('dcterms:description', 'n', ['pub' => 0])])]);
 check('an annotation made private: the two sides of the edit no longer read the same',
     substr_count($both, 'rh-private'), 1);
-check('…and the line says what happened to it', strpos($both, 'dcterms:description Public → Private') !== false, true);
+check('…and the line says what happened to it, as a note on the value\'s field', strpos($both, htmlspecialchars("Note on dcterms:title (dcterms:description): 'n' Public → Private", ENT_QUOTES)) !== false, true);
 
 /* ------------------------------------------------------------ how a save arrived */
 

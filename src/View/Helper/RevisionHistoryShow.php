@@ -819,11 +819,17 @@ class RevisionHistoryShow extends AbstractHelper
 
     /**
      * What happened to the value annotations of one value, in words: each annotation
-     * value added, removed, edited, made private or public, by the name of its field.
-     * Values that are on both sides, exactly, are left out; what is left is paired by
-     * field, in order — the same rule a field's own values are compared by.
+     * value added, removed, edited, made private or public, with its words. Values that
+     * are on both sides, exactly, are left out; what is left is paired by field, in
+     * order — the same rule a field's own values are compared by.
+     *
+     * Said as a note on the value's field ("Note on Dimensions: added 'A4.'"), so it
+     * does not read as if the field itself was added (1.0.12). The annotation's own field
+     * is named too when it is not the value's: "Note on Year (Source): added '…'".
+     *
+     * @param string $field the term of the value the annotations hang on ('' when not known)
      */
-    public function noteWords(array $b, array $a): string
+    public function noteWords(array $b, array $a, string $field = ''): string
     {
         $key = function ($v) {
             return json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -838,10 +844,28 @@ class RevisionHistoryShow extends AbstractHelper
                 }
             }
         }
-        $out = [];
-        $name = function (array $n) {
-            return $this->fieldLabel((string) ($n['f'] ?? ''));
+        $own = $field !== '' ? $this->fieldLabel($field) : '';
+        // "Note on Dimensions", "Note on Year (Source)", or "Note (Source)" when the value's field is not known
+        $head = function (array $n) use ($own) {
+            $f = $this->fieldLabel((string) ($n['f'] ?? ''));
+            if ($own === '') {
+                return 'Note' . ($f !== '' ? ' (' . $f . ')' : '');
+            }
+            return 'Note on ' . $own . ($f !== '' && $f !== $own ? ' (' . $f . ')' : '');
         };
+        // the annotation value's words, cut short: its text, else its URI, else the resource it links to
+        $said = function (array $n) {
+            $t = $n['value'] ?? null;
+            if ($t === null || $t === '') {
+                $t = $n['uri'] ?? null;
+            }
+            if (($t === null || $t === '') && !empty($n['vr'])) {
+                $t = '#' . (int) $n['vr'];
+            }
+            $t = trim(preg_replace('/\s+/u', ' ', (string) $t));
+            return "'" . (mb_strlen($t) > 80 ? rtrim(mb_substr($t, 0, 79)) . '…' : $t) . "'";
+        };
+        $out = [];
         foreach ($old as $x) {
             $pair = null;
             foreach ($new as $j => $y) {
@@ -851,7 +875,7 @@ class RevisionHistoryShow extends AbstractHelper
                 }
             }
             if ($pair === null) {
-                $out[] = $name($x) . ' removed';
+                $out[] = $head($x) . ': removed ' . $said($x);
                 continue;
             }
             $y = $new[$pair];
@@ -863,17 +887,17 @@ class RevisionHistoryShow extends AbstractHelper
                 return $n;
             };
             if ($rest($x, ['pub']) == $rest($y, ['pub'])) {
-                $out[] = $name($x) . ' ' . (!empty($y['pub']) ? 'Private → Public' : 'Public → Private');
+                $out[] = $head($x) . ': ' . $said($y) . ' ' . (!empty($y['pub']) ? 'Private → Public' : 'Public → Private');
             } elseif ($rest($x, ['lang']) == $rest($y, ['lang'])) {
-                $out[] = $name($x) . ' language ' . (($x['lang'] ?? '') ?: '—') . ' → ' . (($y['lang'] ?? '') ?: '—');
+                $out[] = $head($x) . ': ' . $said($y) . ' language ' . (($x['lang'] ?? '') ?: '—') . ' → ' . (($y['lang'] ?? '') ?: '—');
             } else {
-                $out[] = $name($x) . ' edited';
+                $out[] = $head($x) . ': edited ' . $said($x) . ' → ' . $said($y);
             }
         }
         foreach ($new as $y) {
-            $out[] = $name($y) . ' added';
+            $out[] = $head($y) . ': added ' . $said($y);
         }
-        return 'Value annotations' . ($out ? ': ' . implode(' · ', $out) : '');
+        return $out ? implode(' · ', $out) : 'Note changed';
     }
 
     /**
@@ -997,7 +1021,7 @@ class RevisionHistoryShow extends AbstractHelper
                     . ' <span class="rh-what">Language: ' . $this->e($b['lang'] ?: '—') . ' → ' . $this->e($a['lang'] ?: '—') . '</span>';
             }
             if ($same($b, $a, ['note'])) {
-                return $this->valueBody($a) . ' <span class="rh-what">' . $this->e($this->noteWords($b, $a)) . '</span>'
+                return $this->valueBody($a) . ' <span class="rh-what">' . $this->e($this->noteWords($b, $a, (string) $c['field'])) . '</span>'
                     . '<div class="rh-pair"><div class="rh-b"><span class="rh-cap">Before</span>' . $this->value($b, $c['field']) . '</div>'
                     . '<div class="rh-a"><span class="rh-cap">After</span>' . $this->value($a, $c['field']) . '</div></div>';
             }
@@ -1031,7 +1055,7 @@ class RevisionHistoryShow extends AbstractHelper
         if (is_array($b) && is_array($a) && $bHtml === $aHtml) {
             // Two sides that read the same on the page still differ in the record —
             // say in words what differs, rather than show two identical boxes.
-            return $aHtml . ' <span class="rh-what">' . $this->e($this->differs($b, $a)) . '</span>';
+            return $aHtml . ' <span class="rh-what">' . $this->e($this->differs($b, $a, (string) $c['field'])) . '</span>';
         }
         return '<div class="rh-pair"><div class="rh-b"><span class="rh-cap">Before</span>' . $bHtml . '</div>'
             . '<div class="rh-a"><span class="rh-cap">After</span>' . $this->value($a, $c['field']) . '</div></div>';
@@ -1068,8 +1092,12 @@ class RevisionHistoryShow extends AbstractHelper
         return $b == $a;
     }
 
-    /** What differs between two values, in words, for differences the page does not draw. */
-    public function differs(array $b, array $a): string
+    /**
+     * What differs between two values, in words, for differences the page does not draw.
+     *
+     * @param string $field the value's field, for the words about its annotations ('' when not known)
+     */
+    public function differs(array $b, array $a, string $field = ''): string
     {
         $out = [];
         $word = function ($x) {
@@ -1094,7 +1122,7 @@ class RevisionHistoryShow extends AbstractHelper
             $out[] = 'Visibility: ' . (!empty($a['pub']) ? 'Private → Public' : 'Public → Private');
         }
         if (($b['note'] ?? []) != ($a['note'] ?? [])) {
-            $out[] = $this->noteWords($b, $a);
+            $out[] = $this->noteWords($b, $a, $field);
         }
         return $out ? implode(' · ', $out) : 'changed in a way this page cannot show';
     }
