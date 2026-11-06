@@ -347,7 +347,7 @@ class Store
      * to it: how many calls, the first and the last time, and each address with its
      * count. The note is written so a person can read it as it is —
      *
-     *     42 calls · 08:01:03–08:59:40 UTC · 192.168.1.50 ×41, 203.0.113.7 ×1
+     *     42 calls · 08:01:03–08:59:40 UTC · 198.51.100.50 ×41, 203.0.113.7 ×1
      *
      * — and is read back with the same pattern to add the next call. An hour that has
      * ended is never touched again: only the entry of the hour still running changes.
@@ -364,7 +364,7 @@ class Store
         $ip = (string) ($base['ip'] ?? '');
         $ip = $ip !== '' ? $ip : 'no address';
         /* An API key's id is its public identity, not a number, and several keys may
-           share one label — four are called conservation_bot. So the key and the hour
+           share one label (four keys all called "importer", say). So the key and the hour
            are written into source_ref, which revision_history_event already keeps unique with source:
            the table itself then holds one entry per key per hour. */
         $ref = mb_substr('use:' . $key . ':' . substr($hour, 0, 13), 0, 64);

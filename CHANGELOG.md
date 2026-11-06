@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.13 — 2026-11-06
+
+- Comments in the code rewritten in plain terms. No change in behaviour; no database change;
+  upgrade from 1.0.12: Modules → Revision History → Upgrade.
+
 ## 1.0.12 — 2026-11-05
 
 - **A change to a note on a value reads as one.** The history line of a value whose note (value

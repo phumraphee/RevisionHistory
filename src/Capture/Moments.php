@@ -7,7 +7,7 @@ use RevisionHistory\Store;
 /**
  * The things that happen in the archive without a resource being saved. 2026-10-19.
  *
- * The owner asked for one module that records everything that can be recorded. Until
+ * One module that records everything that can be recorded. Until
  * now this one recorded every save, and Activity Log was kept running beside it for the
  * rest — which meant two logs, and the rest only in somebody else's table. These are
  * that rest:

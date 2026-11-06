@@ -98,10 +98,10 @@ class Others
     /**
      * Fields Omeka writes by itself when something is USED rather than changed.
      * 1.10.2: an API key's lastAccessed and lastIp move on every call made with it —
-     * 1,025 times on 13 October alone. A save that touched only these is not an edit of
+     * a busy key a thousand times a day. A save that touched only these is not an edit of
      * the key; it is the key being used, and it is kept as that: one entry per key per
      * hour, counting the calls and the addresses they came from (Store::keyUse). Nothing
-     * is dropped — the owner asked for everything that can be kept — only folded.
+     * is dropped — everything that can be kept is kept — only folded.
      */
     const BY_ITSELF = [
         'Omeka\Entity\ApiKey' => ['lastIp', 'lastAccessed'],

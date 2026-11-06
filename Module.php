@@ -387,7 +387,7 @@ class Module extends AbstractModule
             $reader = new Reader($services->get('Omeka\Connection'));
             $page = $reader->events(['resource' => $resource->id()], (string) ($services->get('Omeka\Settings')->get('time_zone') ?: 'UTC'), 5);
             // A media page also says who added the file: Omeka's "Owner" was the item's
-            // owner for every file added before 2026-11-03, whoever uploaded it.
+            // owner for every file added before 1.0.8 began writing it down, whoever uploaded it.
             $added = null;
             $since = null;
             if ($resource->resourceName() === 'media') {
