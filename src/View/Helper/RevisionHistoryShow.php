@@ -54,6 +54,9 @@ class RevisionHistoryShow extends AbstractHelper
     /** @var array<int, array> the entries prepared for this page, by id: which resource each is about */
     private $entries = [];
 
+    /** @var \RevisionHistory\FieldAlias|null */
+    private $alias = null;
+
     public function __construct(Connection $conn, string $tz, ?callable $menuLabel = null, string $titleTerm = 'dcterms:title', string $accessionTerm = 'dcterms:identifier', $events = null)
     {
         $this->conn = $conn;
@@ -375,7 +378,30 @@ class RevisionHistoryShow extends AbstractHelper
         if (strpos($field, 'o:data:') === 0) {
             return substr($field, 7);
         }
-        return $this->props[$field] ?? $field;
+        if (!isset($this->props[$field])) {
+            // a field with a new name (FieldAlias): named as it is now
+            $this->alias = $this->alias ?? new \RevisionHistory\FieldAlias($this->conn);
+            $cur = $this->alias->current($field);
+            if ($cur !== $field) {
+                return $this->fieldLabel($cur);
+            }
+            try {
+                $this->props[$field] = (string) ($this->conn->fetchOne(
+                    "SELECT p.label FROM property p JOIN vocabulary vo ON vo.id = p.vocabulary_id WHERE CONCAT(vo.prefix, ':', p.local_name) = ?",
+                    [$field]
+                ) ?: $field);
+            } catch (\Throwable $e) {
+                $this->props[$field] = $field;   // no database to ask: the term itself, as before
+            }
+        }
+        return $this->props[$field];
+    }
+
+    /** " was <old term>" after a field's name, when the change was written down under another name (FieldAlias). */
+    public function fieldWas(array $c): string
+    {
+        return empty($c['field_was']) ? '' : ' <span class="rh-was" title="' . $this->e('Written down under its name then') . '">was '
+            . $this->e((string) $c['field_was']) . '</span>';
     }
 
     /**

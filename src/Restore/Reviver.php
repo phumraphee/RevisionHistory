@@ -58,7 +58,9 @@ class Reviver
     private function changes(int $eventId): array
     {
         $out = [];
+        $alias = new \RevisionHistory\FieldAlias($this->conn);    // a field with a new name comes back under it
         foreach ($this->conn->fetchAllAssociative('SELECT op, field, property_id, before_json, after_json FROM revision_history_change WHERE event_id = ? ORDER BY ord', [$eventId]) as $c) {
+            $c = $alias->row($c);
             $out[] = [
                 'op' => $c['op'],
                 'field' => $c['field'],

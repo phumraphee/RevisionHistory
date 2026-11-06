@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0 — 2026-11-07
+
+- Field aliases: when a property is renamed, moved to another vocabulary or merged into another property, an
+  alias (old term → new term) makes the history read its earlier changes under the new name. The Field filter
+  finds them, the Field menu lists the field once, they are labelled as the field is now with a small "was …"
+  note, and undo and restore write to the field as it is now. The changes themselves are never rewritten.
+  `php modules/RevisionHistory/bin/field-alias.php list | add <old> <new> [note] | remove <old>`.
+  New table `revision_history_field_alias`; upgrade from 1.0.13: Modules → Revision History → Upgrade.
+
 ## 1.0.13 — 2026-11-06
 
 - Comments in the code rewritten in plain terms. No change in behaviour; no database change;

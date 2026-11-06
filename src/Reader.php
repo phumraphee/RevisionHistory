@@ -37,10 +37,14 @@ class Reader
     /** @var string the field holding the title people read */
     private $titleTerm;
 
+    /** @var FieldAlias fields read under the name they have now */
+    private $alias;
+
     public function __construct(Connection $conn, string $titleTerm = 'dcterms:title')
     {
         $this->conn = $conn;
         $this->titleTerm = $titleTerm;
+        $this->alias = new FieldAlias($conn);
     }
 
     /**
@@ -72,16 +76,21 @@ class Reader
             $ops = $what === 'edited' ? ['edited', 'order'] : [$what];
             $in = implode(',', array_fill(0, count($ops), '?'));
             if ($field !== '') {
-                $where[] = "EXISTS (SELECT 1 FROM revision_history_change c WHERE c.event_id = e.id AND c.op IN ($in) AND c.field = ?)";
-                $p = array_merge($p, $ops, [$field]);
+                // the field under any name it has had (FieldAlias)
+                $names = $this->alias->names($field);
+                $where[] = "EXISTS (SELECT 1 FROM revision_history_change c WHERE c.event_id = e.id AND c.op IN ($in) AND c.field IN ("
+                    . implode(',', array_fill(0, count($names), '?')) . '))';
+                $p = array_merge($p, $ops, $names);
                 $field = '';
             } else {
                 $where[] = $what === 'added' ? 'e.n_added > 0' : ($what === 'removed' ? 'e.n_removed > 0' : 'e.n_edited > 0');
             }
         }
         if ($field !== '') {
-            $where[] = 'EXISTS (SELECT 1 FROM revision_history_change c WHERE c.event_id = e.id AND c.field = ?)';
-            $p[] = $field;
+            $names = $this->alias->names($field);
+            $where[] = 'EXISTS (SELECT 1 FROM revision_history_change c WHERE c.event_id = e.id AND c.field IN ('
+                . implode(',', array_fill(0, count($names), '?')) . '))';
+            $p = array_merge($p, $names);
         }
 
         $who = (string) ($f['who'] ?? '');
@@ -195,7 +204,7 @@ class Reader
                 $c['before'] = $c['before_json'] === null ? null : json_decode($c['before_json'], true);
                 $c['after'] = $c['after_json'] === null ? null : json_decode($c['after_json'], true);
                 unset($c['before_json'], $c['after_json']);
-                $byId[(int) $c['event_id']]['changes'][] = $c;
+                $byId[(int) $c['event_id']]['changes'][] = $this->alias->row($c);
             }
         }
         if ($runs) {
@@ -223,7 +232,7 @@ class Reader
                         $c['before'] = $c['before_json'] === null ? null : json_decode($c['before_json'], true);
                         $c['after'] = $c['after_json'] === null ? null : json_decode($c['after_json'], true);
                         unset($c['before_json'], $c['after_json']);
-                        $byId[$id]['run'][$members[(int) $c['event_id']]]['changes'][] = $c;
+                        $byId[$id]['run'][$members[(int) $c['event_id']]]['changes'][] = $this->alias->row($c);
                     }
                 }
                 $byId[$id]['run_total'] = count($byId[$id]['run']) < self::RUN_SHOWN
@@ -264,6 +273,7 @@ class Reader
             if ($r['op'] === 'field') {
                 continue;
             }
+            $r = $this->alias->row($r);
             $b = $r['before_json'] === null ? null : json_decode($r['before_json'], true);
             $a = $r['after_json'] === null ? null : json_decode($r['after_json'], true);
             [$b, $a] = self::sameNote($b, $a);
@@ -345,7 +355,14 @@ class Reader
     /** Every field the history has a change for. */
     public function fields(): array
     {
-        return $this->conn->fetchFirstColumn('SELECT DISTINCT field FROM revision_history_change ORDER BY field');
+        // each field once, under the name it has now (FieldAlias)
+        $out = [];
+        foreach ($this->conn->fetchFirstColumn('SELECT DISTINCT field FROM revision_history_change ORDER BY field') as $f) {
+            $out[$this->alias->current((string) $f)] = true;
+        }
+        $out = array_keys($out);
+        sort($out);
+        return $out;
     }
 
     public function summary(): array

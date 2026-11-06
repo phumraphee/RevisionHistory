@@ -28,7 +28,7 @@ $changeLi = function (array $c) use ($s, $opWord) {
         : $s->value($op === 'added' ? $c['after'] : $c['before'], $c['field']);
     return '<li class="rh-c rh-op-' . $s->e($op) . '">'
         . '<span class="rh-opw">' . $s->e($opWord[$op] ?? $op) . '</span>'
-        . '<span class="rh-f">' . $s->e($s->fieldLabel($c['field'])) . '</span>'
+        . '<span class="rh-f">' . $s->e($s->fieldLabel($c['field'])) . $s->fieldWas($c) . '</span>'
         . '<span class="rh-v">' . $body . $s->place($c) . '</span></li>';
 };
 
@@ -243,7 +243,7 @@ $day = null;
                 echo substr($li, 0, -strlen('</span></li>')) . $badge . '</span></li>';
             } else {
                 echo '<li class="rh-c rh-op-' . $s->e($c['op']) . '"><span class="rh-opw">' . $s->e($opWord[$c['op']] ?? $c['op']) . '</span>'
-                    . '<span class="rh-f">' . $s->e($s->fieldLabel($c['field'])) . '</span><span class="rh-v">' . $badge . '</span></li>';
+                    . '<span class="rh-f">' . $s->e($s->fieldLabel($c['field'])) . $s->fieldWas($c) . '</span><span class="rh-v">' . $badge . '</span></li>';
             }
         endforeach; ?>
         </ul>

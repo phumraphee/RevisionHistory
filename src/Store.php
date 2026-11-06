@@ -177,6 +177,8 @@ class Store
         foreach (self::schema() as $sql) {
             $this->conn->executeStatement($sql);
         }
+        // 1.1.0: fields that have a new name (FieldAlias)
+        $this->conn->executeStatement(FieldAlias::schema());
         // 1.1.0 records things whose kind is named by a longer word than an item's.
         try {
             $this->conn->executeStatement("ALTER TABLE `revision_history_event` MODIFY `resource_kind` VARCHAR(32) NOT NULL");

@@ -344,7 +344,9 @@ class IndexController extends AbstractActionController
             return $this->redirect()->toUrl($back);
         }
         $changes = [];
+        $alias = new \RevisionHistory\FieldAlias($conn);    // a field with a new name is put back under it
         foreach ($conn->fetchAllAssociative('SELECT op, field, property_id, before_json, after_json FROM revision_history_change WHERE event_id = ? ORDER BY ord', [$id]) as $c) {
+            $c = $alias->row($c);
             $changes[] = [
                 'op' => $c['op'],
                 'field' => $c['field'],

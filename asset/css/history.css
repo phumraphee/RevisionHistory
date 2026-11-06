@@ -70,6 +70,7 @@
 .rh-op-removed .rh-opw { color: #9b2c25; }
 .rh-op-edited .rh-opw, .rh-op-order .rh-opw { color: #2f5d8c; }
 .rh-f { color: #555; font-weight: 600; overflow-wrap: anywhere; }
+.rh-was { display: block; font-weight: normal; font-size: .8em; color: #888; }
 .rh-v { overflow-wrap: anywhere; min-width: 0; }
 .rh-op-removed .rh-v { text-decoration: line-through; text-decoration-color: rgba(155, 44, 37, .45); color: #6a3a36; }
 .rh-plain .rh-v { text-decoration: none; color: inherit; }

@@ -23,7 +23,7 @@ $li = function (array $c) use ($s, $opWord) {
     $op = $c['op'];
     $body = in_array($op, ['edited', 'order'], true) ? $s->edit($c) : $s->value($op === 'added' ? $c['after'] : $c['before'], $c['field']);
     return '<li class="rh-c rh-op-' . $s->e($op) . '"><span class="rh-opw">' . $s->e($opWord[$op] ?? $op) . '</span>'
-        . '<span class="rh-f">' . $s->e($s->fieldLabel($c['field'])) . '</span>'
+        . '<span class="rh-f">' . $s->e($s->fieldLabel($c['field'])) . $s->fieldWas($c) . '</span>'
         . '<span class="rh-v">' . $body . $s->place($c) . ($c['ok'] ? '' : ' <span class="rh-id">' . $s->e($c['why']) . '</span>') . '</span></li>';
 };
 $ok = array_values(array_filter($plan['rows'], function ($r) { return $r['ok']; }));
