@@ -183,3 +183,50 @@
 .rh-raw { white-space: pre-wrap; word-break: break-all; font-size: 12px; background: #fafafa; padding: 8px; max-height: 24em; overflow: auto; }
 /* Links saved with their exact data type, gathered into one line (1.9.1). */
 .rh-exact-f { color: #6a6a6a; font-size: 13px; margin-top: 2px; }
+
+/* Entries other modules wrote (1.2.0): the module's word on a badge, one colour per module */
+.rh-from { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -4px 0 14px; font-size: 14px; }
+.rh-from-l { font-weight: 600; color: #555; margin-right: 2px; }
+.rh-wrap a.rh-src {
+    padding: 4px 11px; border: 1px solid #cfcfcf; border-radius: 999px; background: #fff;
+    color: #333; text-decoration: none; line-height: 1.2;
+}
+.rh-wrap a.rh-src:hover { border-color: #888; }
+.rh-wrap a.rh-src.is-on { background: #333; border-color: #333; color: #fff; }
+.rh-src i { font-style: normal; color: #888; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.rh-src.is-on i { color: #ddd; }
+.rh-kinds { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: -6px 0 14px; font-size: 14px; }
+.rh-kinds select { font-size: 15px; min-height: 32px; }
+.rh-auto-toggle { font-size: 14px; margin: -6px 0 14px; }
+
+.rh-ev-noted { --mc: #6b5a2e; --mb: #f3ecd9; border-left-color: var(--mc); }
+.rh-tone-1 { --mc: #2f5f8a; --mb: #e3edf6; }
+.rh-tone-2 { --mc: #7a3f7a; --mb: #f3e6f3; }
+.rh-tone-3 { --mc: #3b6e3b; --mb: #e6f1e6; }
+.rh-tone-4 { --mc: #8a5a1f; --mb: #f6ecdc; }
+.rh-tone-5 { --mc: #4a4f8f; --mb: #e8e9f6; }
+.rh-badge {
+    display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 13px; font-weight: 600;
+    background: var(--mb); color: var(--mc);
+}
+.rh-kindw { color: #555; }
+.rh-autow, .rh-undone {
+    font-size: 13px; color: #666; background: #f1f1f1; border-radius: 4px; padding: 0 6px; text-decoration: none;
+}
+.rh-wrap a.rh-undone { color: #666; }
+.rh-ev-noted.rh-auto { background: #fbfbfb; }
+.rh-sum { margin: 4px 0 2px; font-size: 15px; }
+.rh-ba { margin: 2px 0; font-size: 14px; color: #555; }
+.rh-ba del { color: #a33; }
+.rh-ba ins { color: #2a7a2a; text-decoration: none; }
+.rh-none { color: #999; }
+.rh-entry-details { font-size: 14px; color: #444; margin-top: 4px; }
+.rh-entry-details dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 4px 0; }
+.rh-entry-details dt { color: #666; }
+.rh-entry-details dd { margin: 0; overflow-wrap: anywhere; }
+.rh-links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 6px 0 0; font-size: 14px; }
+.rh-removed { color: #777; font-style: italic; }
+@media (max-width: 600px) {
+    .rh-entry-details dl { grid-template-columns: 1fr; }
+    .rh-entry-details dd { margin-bottom: 4px; }
+}

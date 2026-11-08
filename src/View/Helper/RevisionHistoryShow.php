@@ -338,6 +338,36 @@ class RevisionHistoryShow extends AbstractHelper
 
     /* ------------------------------------------------------------------ words */
 
+    /** @var array<string, bool>|null modules active now, by folder name */
+    private $activeModules;
+
+    /**
+     * Whether an entry's link still leads somewhere: the module that wrote it is still
+     * active, or — for a page of the site that is not a module — the page is still there.
+     * An entry reads the same either way; only its link is drawn as "module removed".
+     */
+    public function entryLinkOk(array $e): bool
+    {
+        $x = $e['entry'] ?? [];
+        if (($x['origin'] ?? 'module') === 'page') {
+            $path = (string) parse_url((string) ($x['link'] ?? ''), PHP_URL_PATH);
+            if ($path === '' || strpos($path, '..') !== false || !defined('OMEKA_PATH')) {
+                return false;
+            }
+            return preg_match('#^/admin(/|$)#', $path) === 1 || is_file(OMEKA_PATH . $path);
+        }
+        if ($this->activeModules === null) {
+            $this->activeModules = [];
+            try {
+                foreach ($this->conn->fetchFirstColumn('SELECT id FROM module WHERE is_active = 1') as $m) {
+                    $this->activeModules[(string) $m] = true;
+                }
+            } catch (\Throwable $ex) {
+            }
+        }
+        return isset($this->activeModules[(string) ($e['module'] ?? '')]);
+    }
+
     public function e($s): string
     {
         return htmlspecialchars((string) $s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

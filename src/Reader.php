@@ -163,6 +163,26 @@ class Reader
         // on one day. Nothing is left out of the history; it is read as one card.
         $filters = $where;
         $filterParams = $p;
+        // Entries other modules wrote (1.2.0): one module, one of its kinds, or only the
+        // values. Entries nobody was behind are folded away unless asked for. Added after
+        // the filters a run is read with: an entry is never part of a run, and the run
+        // queries below are the slow part of the Everything page — they stay as they were.
+        $module = (string) ($f['module'] ?? '');
+        if ($module === 'values') {
+            $where[] = "e.action <> 'noted'";
+        } elseif ($module !== '') {
+            $where[] = "e.action = 'noted' AND e.module = ?";
+            $p[] = $module;
+            $entryKind = (string) ($f['entry'] ?? '');
+            if ($entryKind !== '') {
+                $where[] = 'e.kind = ?';
+                $p[] = $entryKind;
+            }
+        }
+        if (($f['auto'] ?? '') !== '1') {
+            $where[] = 'e.automatic = 0';
+        }
+
         if ($runs) {
             $where[] = '(' . self::GROUP . " = '' OR NOT EXISTS (SELECT 1 FROM revision_history_event e2 WHERE "
                 . self::other(self::GROUP) . ' = ' . self::GROUP . "
@@ -205,6 +225,40 @@ class Reader
                 $c['after'] = $c['after_json'] === null ? null : json_decode($c['after_json'], true);
                 unset($c['before_json'], $c['after_json']);
                 $byId[(int) $c['event_id']]['changes'][] = $this->alias->row($c);
+            }
+        }
+        $noted = [];
+        foreach ($byId as $id => $r) {
+            if ($r['action'] === 'noted') {
+                $noted[] = $id;
+            }
+        }
+        if ($noted) {
+            foreach ($this->conn->fetchAllAssociative(
+                'SELECT * FROM revision_history_entry WHERE event_id IN (' . implode(',', $noted) . ')'
+            ) as $x) {
+                $x['details'] = $x['details_json'] === null ? [] : (json_decode((string) $x['details_json'], true) ?: []);
+                unset($x['details_json']);
+                $byId[(int) $x['event_id']]['entry'] = $x;
+            }
+            // Whether the module has since undone an entry: its undo is an entry of its own
+            // that names the first one (undoes = the first one's ref).
+            $refs = [];
+            foreach ($noted as $id) {
+                if (($byId[$id]['source_ref'] ?? null) !== null) {
+                    $refs[(string) $byId[$id]['source_ref']] = $id;
+                }
+            }
+            if ($refs) {
+                foreach ($this->conn->fetchAllAssociative(
+                    "SELECT CONCAT(e.module, ':', x.undoes) AS undid, e.id, e.happened_at, e.user_name
+                       FROM revision_history_entry x JOIN revision_history_event e ON e.id = x.event_id
+                      WHERE x.undoes <> '' AND CONCAT(e.module, ':', x.undoes) IN (" . implode(',', array_fill(0, count($refs), '?')) . ')
+                      ORDER BY e.happened_at',
+                    array_keys($refs)
+                ) as $u) {
+                    $byId[$refs[(string) $u['undid']]]['undone'] = $u;
+                }
             }
         }
         if ($runs) {
@@ -339,6 +393,57 @@ class Reader
             $r['item_id'] = (int) $m[1];
         }
         return $r;
+    }
+
+    /**
+     * Where the entries of one record (or of the whole history, with no record) came from:
+     * the values themselves, each module that wrote entries, with their kinds, and how many
+     * entries nobody was behind. For the "From" row of the page.
+     *
+     * @return array{values:int, modules:array<string, array{label:string, n:int, kinds:array<string, array{label:string, n:int}>}>, automatic:int}
+     */
+    public function sources(int $resource = 0): array
+    {
+        $where = '1=1';
+        $p = [];
+        if ($resource > 0) {
+            $where = "e.resource_kind IN ('item','media','item_set') AND (e.resource_id = ? OR e.item_id = ?)";
+            $p = [$resource, $resource];
+        }
+        $out = ['values' => 0, 'modules' => [], 'automatic' => 0];
+        if ($resource > 0) {
+            $out['values'] = (int) $this->conn->fetchOne(
+                "SELECT COUNT(*) FROM revision_history_event e WHERE $where AND e.action <> 'noted'",
+                $p
+            );
+        }
+        $rows = $this->conn->fetchAllAssociative(
+            "SELECT e.module, e.kind, e.automatic, MAX(x.label) AS label, MAX(x.kind_label) AS kind_label, COUNT(*) AS n
+               FROM revision_history_event e LEFT JOIN revision_history_entry x ON x.event_id = e.id
+              WHERE $where AND e.action = 'noted'
+              GROUP BY e.module, e.kind, e.automatic",
+            $p
+        );
+        foreach ($rows as $r) {
+            $m = (string) $r['module'];
+            if ((int) $r['automatic']) {
+                $out['automatic'] += (int) $r['n'];
+            }
+            if (!isset($out['modules'][$m])) {
+                $out['modules'][$m] = ['label' => (string) ($r['label'] ?: $m), 'n' => 0, 'auto' => 0, 'kinds' => []];
+            }
+            $out['modules'][$m]['n'] += (int) $r['n'];
+            $out['modules'][$m]['auto'] += (int) $r['automatic'] ? (int) $r['n'] : 0;
+            $k = (string) $r['kind'];
+            if (!isset($out['modules'][$m]['kinds'][$k])) {
+                $out['modules'][$m]['kinds'][$k] = ['label' => (string) ($r['kind_label'] ?: ($k !== '' ? ucfirst(str_replace(['.', '_', '-'], ' ', $k)) : 'Other')), 'n' => 0];
+            }
+            $out['modules'][$m]['kinds'][$k]['n'] += (int) $r['n'];
+        }
+        uasort($out['modules'], function ($a, $b) {
+            return strcasecmp($a['label'], $b['label']);
+        });
+        return $out;
     }
 
     /** Everyone who appears in the history, including people whose accounts are gone. */

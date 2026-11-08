@@ -1,0 +1,67 @@
+<?php
+/**
+ * One entry another module wrote (1.2.0, Entries). Everything drawn here is what was written
+ * down with the entry; the module itself is not asked.
+ *
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var array $e the event row, with 'entry' (revision_history_entry) and maybe 'undone'
+ * @var bool $showItem whether the card names its record (not on the record's own page)
+ */
+$s = $this->revisionHistoryShow();
+$x = $e['entry'] ?? [];
+$when = $s->local($e['happened_at']);
+$label = (string) (($x['label'] ?? '') !== '' ? $x['label'] : $e['module']);
+$kindLabel = (string) ($x['kind_label'] ?? '');
+$who = $e['user_name'] !== '' ? $e['user_name'] : ($e['user_id'] ? 'account #' . (int) $e['user_id'] : 'no one signed in');
+$auto = (int) ($e['automatic'] ?? 0) === 1;
+$linkOk = $s->entryLinkOk($e);
+$rid = (int) $e['resource_id'];
+// The record's name as it was when the entry was written; as it is now when it still exists.
+$saved = (string) (($x['record_name'] ?? '') !== '' ? $x['record_name'] : ($e['title'] ?? ''));
+$t = $s->titleOf($rid);
+$name = $s->nameOf($rid, $saved);
+$tone = abs(crc32((string) $e['module'])) % 6;
+?>
+<div class="rh-ev rh-ev-noted rh-tone-<?= $tone ?><?= $auto ? ' rh-auto' : '' ?>" id="rh-<?= (int) $e['id'] ?>">
+    <div class="rh-head">
+        <span class="rh-time" data-utc="<?= $s->e(substr($e['happened_at'], 0, 19)) ?>Z" title="<?= $s->e($when->format('Y-m-d H:i:s') . ' ' . $s->tz()) ?>"><?= $s->e($when->format('H:i')) ?></span>
+        <span class="rh-who"<?= $e['user_email'] !== '' ? ' title="' . $s->e($e['user_email']) . '"' : '' ?>><?= $s->e($who) ?></span>
+        <span class="rh-badge" title="<?= $s->e($e['module']) ?>"><?= $s->e($label) ?></span>
+        <?php if ($kindLabel !== ''): ?><span class="rh-kindw"><?= $s->e($kindLabel) ?></span><?php endif; ?>
+        <?php if ($auto): ?><span class="rh-autow">automatic</span><?php endif; ?>
+        <?php if (!empty($e['undone'])): $u = $e['undone']; $uw = $s->local($u['happened_at']); ?>
+        <a class="rh-undone" href="#rh-<?= (int) $u['id'] ?>">undone <?= $s->e($uw->format('j M Y H:i')) ?><?= $u['user_name'] !== '' ? ' by ' . $s->e($u['user_name']) : '' ?></a>
+        <?php endif; ?>
+        <?php if ($showItem): ?>
+        <span class="rh-res">
+            <?php if (!$t['gone']): ?><a href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => $e['resource_kind'] === 'media' && $e['item_id'] ? (int) $e['item_id'] : $rid])) ?>"><?= $s->e($name) ?></a>
+            <?php else: ?><span class="rh-title-gone"><?= $s->e($name) ?></span> <span class="rh-gone">no longer exists</span><?php endif; ?>
+            <?php if ($e['accession'] !== '' && $e['accession'] !== $name): ?><span class="rh-acc"><?= $s->e($e['accession']) ?></span><?php endif; ?>
+        </span>
+        <?php endif; ?>
+    </div>
+    <p class="rh-sum"><?= $s->e((string) $e['note']) ?></p>
+    <?php if (($x['before_text'] ?? null) !== null || ($x['after_text'] ?? null) !== null): ?>
+    <p class="rh-ba"><?php if (($x['before_text'] ?? null) !== null): ?><del><?= $s->e($x['before_text']) ?></del><?php else: ?><span class="rh-none">—</span><?php endif; ?>
+        <span aria-hidden="true">→</span>
+        <?php if (($x['after_text'] ?? null) !== null): ?><ins><?= $s->e($x['after_text']) ?></ins><?php else: ?><span class="rh-none">—</span><?php endif; ?></p>
+    <?php endif; ?>
+    <?php if (!empty($x['details'])): ?>
+    <details class="rh-entry-details"><summary>Details</summary>
+        <dl><?php foreach ($x['details'] as $pair): ?><dt><?= $s->e($pair[0] ?? '') ?></dt><dd><?= $s->e($pair[1] ?? '') ?></dd><?php endforeach; ?></dl>
+    </details>
+    <?php endif; ?>
+    <?php if (($x['link'] ?? '') !== '' || ($x['undo'] ?? '') !== ''): ?>
+    <p class="rh-links">
+        <?php if (!$linkOk): ?>
+        <span class="rh-removed" title="<?= $s->e($e['module']) ?>">module removed — the entry is kept as it was written</span>
+        <?php else: ?>
+        <?php if (($x['link'] ?? '') !== ''): ?><a href="<?= $s->e($this->basePath() . $x['link']) ?>">Open in <?= $s->e($label) ?> →</a><?php endif; ?>
+        <?php if (($x['undo'] ?? '') !== '' && empty($e['undone'])): ?><a href="<?= $s->e($this->basePath() . $x['undo']) ?>">Undo in <?= $s->e($label) ?> →</a><?php endif; ?>
+        <?php endif; ?>
+    </p>
+    <?php endif; ?>
+    <?php if ($showItem && !$t['gone']): ?>
+    <div class="rh-foot"><a class="rh-hist" href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => $e['resource_kind'] === 'media' && $e['item_id'] ? (int) $e['item_id'] : $rid])) ?>">its whole history</a></div>
+    <?php endif; ?>
+</div>

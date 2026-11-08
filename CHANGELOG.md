@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.0 — 2026-11-08
+
+- **Entries from other modules.** A module can write into a record's history what happened to it that is not a
+  value — a work came back from the conservator, a person checked it is in the right place, a set was moved in a
+  tree. `RevisionHistory\Entries::fromServices($services)->add([...])`, or, without depending on this module, the
+  event `history.entry` on the identifier `HistoryEntry` (README, "Entries from other modules").
+- Each entry is a copy that reads on its own: its words, before and after, details, the person and the record's
+  name are written down with it. Uninstalling the module that wrote it, or deleting the record, leaves it as it
+  was; its links then read "module removed".
+- The history pages get a **From** row (Values · each module, with counts) and a **Kind** menu; entries nobody
+  was behind (a scheduled run) are kept and folded away behind **Show automatic (n)**. The export has them all.
+- Undo stays in the module that wrote an entry: the card links there, and shows "undone … by …" once the module
+  writes its undo as an entry naming the first one (`undoes`).
+- `Entries::beside($pdo, $who, $via)`: the same entries from code that shares the database without starting
+  Omeka (a page, a script), through a plain PDO.
+- `php modules/RevisionHistory/bin/entries.php list | remove <module> [ref prefix] [--go]`.
+- The checks for "somebody else saved since" leave entries out: an entry changes no value.
+- New table `revision_history_entry`; three columns and an index on `revision_history_event`. Upgrade from 1.1.0:
+  Modules → Revision History → Upgrade. Uninstall still leaves every table in place.
+
 ## 1.1.0 — 2026-11-07
 
 - Field aliases: when a property is renamed, moved to another vocabulary or merged into another property, an

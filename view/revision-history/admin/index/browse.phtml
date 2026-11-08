@@ -78,8 +78,11 @@ echo $this->pageTitle('Revision History', 1);
 <?php endforeach; ?>
 </nav>
 
+<?= $this->partial('revision-history/admin/index/sources', ['sources' => $sources ?? [], 'filters' => $filters, 'link' => $link]) ?>
+
 <form class="rh-filters" method="get" action="<?= $e($this->url('admin/revision-history')) ?>">
     <?php if ($what !== 'all'): ?><input type="hidden" name="what" value="<?= $e($what) ?>"><?php endif; ?>
+    <?php foreach (['module', 'entry', 'auto'] as $keep): if (($filters[$keep] ?? '') !== ''): ?><input type="hidden" name="<?= $keep ?>" value="<?= $e($filters[$keep]) ?>"><?php endif; endforeach; ?>
     <label><span>Who</span>
         <select name="who">
             <option value="">Anyone</option>

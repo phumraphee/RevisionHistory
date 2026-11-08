@@ -54,6 +54,9 @@ class Store
                 `n_added` INT NOT NULL DEFAULT 0,
                 `n_removed` INT NOT NULL DEFAULT 0,
                 `n_edited` INT NOT NULL DEFAULT 0,
+                `module` VARCHAR(64) NOT NULL DEFAULT '',
+                `kind` VARCHAR(40) NOT NULL DEFAULT '',
+                `automatic` TINYINT NOT NULL DEFAULT 0,
                 PRIMARY KEY (`id`),
                 KEY `k_when` (`happened_at`),
                 KEY `k_resource` (`resource_id`),
@@ -62,6 +65,7 @@ class Store
                 KEY `k_action` (`action`),
                 KEY `k_save` (`save_key`),
                 KEY `k_run` (`run_key`),
+                KEY `k_module` (`module`, `kind`),
                 UNIQUE KEY `u_source` (`source`, `source_ref`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
             "CREATE TABLE IF NOT EXISTS `revision_history_change` (
@@ -141,6 +145,23 @@ class Store
                 KEY `k_when` (`at`),
                 KEY `k_user` (`user_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+            // What another module said happened to a record (1.2.0, Entries): the words of the
+            // entry as they were, so it reads without that module. One row per entry of
+            // revision_history_event whose action is 'noted'.
+            "CREATE TABLE IF NOT EXISTS `revision_history_entry` (
+                `event_id` INT UNSIGNED NOT NULL,
+                `label` VARCHAR(64) NOT NULL DEFAULT '',
+                `kind_label` VARCHAR(120) NOT NULL DEFAULT '',
+                `origin` VARCHAR(8) NOT NULL DEFAULT 'module',
+                `record_name` TEXT NULL,
+                `before_text` MEDIUMTEXT NULL,
+                `after_text` MEDIUMTEXT NULL,
+                `details_json` MEDIUMTEXT NULL,
+                `link` VARCHAR(255) NOT NULL DEFAULT '',
+                `undo` VARCHAR(255) NOT NULL DEFAULT '',
+                `undoes` VARCHAR(120) NOT NULL DEFAULT '',
+                PRIMARY KEY (`event_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
             // The module's own small notes — progress of a copy, its last report. Not
             // Omeka's settings: Activity Log writes a row for every setting that is saved,
             // and a copy that reports its progress there would keep making more to copy.
@@ -203,6 +224,16 @@ class Store
         // this did not. Rows written before it simply have none.
         try {
             $this->conn->executeStatement("ALTER TABLE `revision_history_event` ADD COLUMN `ip` VARCHAR(45) NOT NULL DEFAULT '' AFTER `via_detail`");
+        } catch (\Throwable $e) {
+        }
+        // 1.2.0: entries other modules write (Entries) say which module, what kind, and
+        // whether anybody was behind them. ADD COLUMN is instant in MySQL 8.
+        try {
+            $this->conn->executeStatement("ALTER TABLE `revision_history_event` ADD COLUMN `module` VARCHAR(64) NOT NULL DEFAULT '', ADD COLUMN `kind` VARCHAR(40) NOT NULL DEFAULT '', ADD COLUMN `automatic` TINYINT NOT NULL DEFAULT 0");
+        } catch (\Throwable $e) {
+        }
+        try {
+            $this->conn->executeStatement('ALTER TABLE `revision_history_event` ADD KEY `k_module` (`module`, `kind`)');
         } catch (\Throwable $e) {
         }
         $this->runsBefore();

@@ -559,7 +559,7 @@ class Reviver
      */
     private function mark(int $rid, string $note, int $since, bool $created = true): void
     {
-        $first = $this->conn->fetchOne("SELECT MIN(id) FROM revision_history_event WHERE resource_kind IN ('item','media','item_set') AND resource_id = ? AND id > ?", [$rid, $since]);
+        $first = $this->conn->fetchOne("SELECT MIN(id) FROM revision_history_event WHERE resource_kind IN ('item','media','item_set') AND resource_id = ? AND id > ? AND action <> 'noted'", [$rid, $since]);
         $rows = $this->conn->fetchFirstColumn(
             "SELECT id FROM revision_history_event WHERE resource_kind IN ('item','media','item_set') AND resource_id = ? AND id > ? AND (note IS NULL OR note = '')",
             [$rid, $since]

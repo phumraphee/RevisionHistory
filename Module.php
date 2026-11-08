@@ -234,12 +234,29 @@ class Module extends AbstractModule
         // background job and the page does not wait for it.
         $shared->attach('*', 'view.layout', [$this, 'checkIfDue']);
 
+        // What another module says happened to a record, sent without naming this module
+        // (1.2.0; see Entries and the README).
+        $shared->attach('HistoryEntry', 'history.entry', [$this, 'historyEntry']);
+
         foreach (['Omeka\Controller\Admin\Item', 'Omeka\Controller\Admin\Media', 'Omeka\Controller\Admin\ItemSet'] as $controller) {
             $shared->attach($controller, 'view.show.sidebar', [$this, 'sidebar']);
             $shared->attach($controller, 'view.add.before', [$this, 'confirmBeforeSave']);
             $shared->attach($controller, 'view.edit.before', [$this, 'confirmBeforeSave']);
             $shared->attach($controller, 'view.batch_edit.before', [$this, 'confirmBeforeSave']);
         }
+    }
+
+    /**
+     * The event history.entry: the same keys as Entries::add(). The id of the entry is set
+     * as the parameter entry_id and returned (0 when nothing was written).
+     */
+    public function historyEntry(Event $event): int
+    {
+        $id = Entries::fromServices($this->getServiceLocator())->add($event->getParams() instanceof \ArrayAccess
+            ? (array) $event->getParams()->getArrayCopy()
+            : (array) $event->getParams());
+        $event->setParam('entry_id', $id);
+        return $id;
     }
 
     /**
@@ -280,7 +297,8 @@ class Module extends AbstractModule
                 try {
                     $conn = $services->get('Omeka\Connection');
                     $seen = (int) $conn->fetchOne(
-                        'SELECT COALESCE(MAX(`id`), 0) FROM `revision_history_event` WHERE `resource_id` = ? OR `item_id` = ?',
+                        // an entry another module wrote changes no value, so it is not a save (1.2.0)
+                        "SELECT COALESCE(MAX(`id`), 0) FROM `revision_history_event` WHERE (`resource_id` = ? OR `item_id` = ?) AND `action` <> 'noted'",
                         [$id, $id]
                     );
                     $opened = (string) ($conn->fetchOne('SELECT `modified` FROM `resource` WHERE `id` = ?', [$id]) ?: '');

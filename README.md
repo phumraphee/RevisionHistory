@@ -249,6 +249,66 @@ Where the change also altered the media or resource row (a new `sha256` and `siz
 write the entry and the data check will see the difference is accounted for and say
 nothing. Never let a failure to write here fail the work itself.
 
+## Entries from other modules
+
+Not everything that happens to a record is a value. A work goes out to the conservator and comes back; a
+person checks that it is kept in the right place; a set it belongs to is moved in a tree. Since 1.2.0 the
+module that did it can write that into the record's history, so the record's page shows everything in one
+place. (A value your module writes by plain SQL is something else: wrap the write in `Outside::around()`, above,
+and the values are recorded as a save.)
+
+```php
+if (class_exists(\RevisionHistory\Entries::class)) {
+    \RevisionHistory\Entries::fromServices($services)->add([
+        'resource'   => 123,                     // an item, media or item set (or 'resources' => [ids])
+        'module'     => 'ExampleLoans',          // your module's folder name
+        'label'      => 'Loans',                 // the word on the card and on the filter
+        'kind'       => 'returned',              // your own word: a-z 0-9 . _ -
+        'kind_label' => 'Returned',              // that word as people read it
+        'summary'    => 'Returned from the loan to Example Gallery',
+        'before'     => 'On loan',               // optional, text
+        'after'      => 'In storage',            // optional, text
+        'details'    => ['Condition' => 'unchanged'],   // optional, label => text
+        'link'       => '/admin/example-loans/42',      // optional, "Open in Loans →" (a path of this site)
+        'undo'       => '/admin/example-loans/42/undo', // optional, "Undo in Loans →"
+        'ref'        => 'loan_event:42',         // your own row: the same ref is never written twice
+    ]);
+}
+```
+
+Without depending on this module, send the same keys as an event; with no module listening, nothing happens:
+
+```php
+$events = new \Laminas\EventManager\EventManager($services->get('SharedEventManager'), ['HistoryEntry']);
+$events->trigger('history.entry', null, [/* the same keys */]);
+```
+
+- **Code beside Omeka** that shares its database without starting it (a page of your site, a script) can write the
+  same entries through a plain PDO, so one entry does not cost starting the application:
+  `\RevisionHistory\Entries::beside($pdo, ['id' => 5, 'name' => 'A. Person', 'email' => 'a@example.org'], ['web', '/page.php'])->add([...])`.
+  That code says who is signed in and how the request came (`web` and its path, or `cli` and the script), so it
+  must already know; nobody signed in: mark the entry `automatic`.
+- **Who, when and how** are filled in by this module, as for a save; a module cannot set them. Something with
+  nobody behind it (a scheduled run) is `'automatic' => true`, with `'actor' => 'name of the job'`; it is kept
+  and folded away on the page behind *Show automatic (n)*.
+- **Each entry is a copy that reads on its own.** The words, both sides, the details, the person's name and
+  the record's name are written down as they are. Nothing on the page asks your module: when it is uninstalled,
+  or the record deleted, the entry still reads the same, and its links say *module removed*. A page of your site
+  that is not a module says `'origin' => 'page'`; its link is kept while the file is there.
+- **Undo stays with you.** The card shows your Undo link; this module never undoes an entry. When you undo,
+  write the undo as an entry of its own with `'undoes' => '<the first ref>'`, and the first card says
+  *undone … by …*.
+- **Copying an old log in**, from the command line only, an entry may also carry `'at'` (UTC,
+  `Y-m-d H:i:s`), `'by_id'`, `'by_name'`, `'by_email'` and `'copied_from'`, with a `ref`; running the copy again
+  adds nothing.
+- `add()` returns the entry's id and **never throws**: if it cannot write, your work stands and the reason is
+  logged. Inside your transaction the entry is part of it. One request writes at most 5,000 entries; the rest
+  are counted (`Entries::folded()`) and logged.
+- Never put personal data of people outside the archive in an entry (a visitor's name or address): name the
+  case ("Loan request 12") and link to where it is kept.
+- `php modules/RevisionHistory/bin/entries.php list` counts them by module and kind;
+  `remove <module> [ref prefix] [--go]` takes them away, only when a person asks it to.
+
 ## Describing a change
 
 Some changes mean more than their two sides show: a flag inside a value's JSON, a field of its own
@@ -445,7 +505,8 @@ this module goes to. Whatever another module's handler does with that link, it d
 
 ## Uninstall
 
-Leaves every `revision_history_*` table and the settings in place, on purpose, and notes the time.
+Leaves every `revision_history_*` table and the settings in place, on purpose, and notes the time — the
+entries other modules wrote (`revision_history_entry`) too.
 Installing again notes the gap on the page. To remove the history for real, drop `revision_history_*` by hand.
 
 ## Settings

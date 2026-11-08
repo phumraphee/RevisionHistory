@@ -150,7 +150,7 @@ class Watchman
     private function accounted(int $id, string $since, bool $others = false): bool
     {
         return (bool) $this->conn->fetchOne(
-            'SELECT 1 FROM revision_history_event WHERE resource_kind IN (\'item\',\'media\',\'item_set\') AND (resource_id = ? OR item_id = ?) AND happened_at >= ?' . ($others ? " AND source <> 'here'" : '') . ' LIMIT 1',
+            'SELECT 1 FROM revision_history_event WHERE resource_kind IN (\'item\',\'media\',\'item_set\') AND (resource_id = ? OR item_id = ?) AND happened_at >= ? AND action <> \'noted\'' . ($others ? " AND source <> 'here'" : '') . ' LIMIT 1',
             [$id, $id, $since]
         );
     }

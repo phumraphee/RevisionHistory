@@ -1,0 +1,48 @@
+<?php
+/**
+ * Where the entries came from (1.2.0): the values themselves, or each module that wrote entries.
+ * Drawn only when some module has written one.
+ *
+ * @var \Laminas\View\Renderer\PhpRenderer $this
+ * @var array $sources Reader::sources()
+ * @var array $filters
+ * @var callable $link array of query changes => address
+ */
+if (empty($sources['modules'])) return;
+$s = $this->revisionHistoryShow();
+$on = (string) ($filters['module'] ?? '');
+$auto = ($filters['auto'] ?? '') === '1';
+// Counts leave out the automatic entries while they are folded away.
+$n = function (array $m) use ($auto) {
+    return $auto ? (int) $m['n'] : (int) $m['n'] - (int) ($m['auto'] ?? 0);
+};
+$all = 0;
+foreach ($sources['modules'] as $m) $all += $n($m);
+?>
+<nav class="rh-from" aria-label="Where it came from">
+    <span class="rh-from-l">From:</span>
+    <a class="rh-src<?= $on === '' ? ' is-on' : '' ?>" href="<?= $s->e($link(['module' => null, 'entry' => null])) ?>">All<?php if ($sources['values']): ?><i><?= (int) $sources['values'] + $all ?></i><?php endif; ?></a>
+    <a class="rh-src<?= $on === 'values' ? ' is-on' : '' ?>" href="<?= $s->e($link(['module' => 'values', 'entry' => null])) ?>">Values<?php if ($sources['values']): ?><i><?= (int) $sources['values'] ?></i><?php endif; ?></a>
+    <?php foreach ($sources['modules'] as $key => $m): if (!$n($m) && $on !== (string) $key) continue; ?>
+    <a class="rh-src<?= $on === (string) $key ? ' is-on' : '' ?>" href="<?= $s->e($link(['module' => (string) $key, 'entry' => null])) ?>" title="<?= $s->e($key) ?>"><?= $s->e($m['label']) ?><i><?= $n($m) ?></i></a>
+    <?php endforeach; ?>
+</nav>
+<?php if ($on !== '' && $on !== 'values' && isset($sources['modules'][$on]) && count($sources['modules'][$on]['kinds']) > 1): $entry = (string) ($filters['entry'] ?? ''); ?>
+<form class="rh-kinds" method="get" action="">
+    <?php foreach ($filters as $k => $v): if (in_array($k, ['entry', 'after', 'resource'], true)) continue; ?>
+    <input type="hidden" name="<?= $s->e($k) ?>" value="<?= $s->e($v) ?>">
+    <?php endforeach; ?>
+    <label for="rh-entry-kind"><b>Kind:</b></label>
+    <select id="rh-entry-kind" name="entry" onchange="this.form.submit()">
+        <option value="">All kinds</option>
+        <?php foreach ($sources['modules'][$on]['kinds'] as $k => $kind): ?>
+        <option value="<?= $s->e($k) ?>"<?= $entry === (string) $k ? ' selected' : '' ?>><?= $s->e($kind['label']) ?> (<?= (int) $kind['n'] ?>)</option>
+        <?php endforeach; ?>
+    </select>
+    <noscript><button type="submit">Show</button></noscript>
+</form>
+<?php endif; ?>
+<?php if ((int) $sources['automatic'] > 0): ?>
+<p class="rh-auto-toggle"><a href="<?= $s->e($link(['auto' => $auto ? null : '1'])) ?>"><?= $auto ? 'Hide automatic entries' : 'Show automatic (' . (int) $sources['automatic'] . ')' ?></a>
+    <span class="rh-from-l" style="font-weight:normal">— entries nobody was behind: a scheduled run, a file made again</span></p>
+<?php endif; ?>

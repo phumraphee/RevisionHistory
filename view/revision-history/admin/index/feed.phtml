@@ -145,6 +145,12 @@ $day = null;
 <div class="rh-daylist">
 <?php endif;
 
+    // An entry another module wrote (1.2.0) is drawn from what was written with it.
+    if ($e['action'] === 'noted') {
+        echo $this->partial('revision-history/admin/index/entry', ['e' => $e, 'showItem' => $showItem]);
+        continue;
+    }
+
     $rid = (int) $e['resource_id'];
     // Entries that are not about an item, a media or an item set (Vocab Sync's own
     // record) carry no resource id to look a title up by.

@@ -32,7 +32,7 @@ class IndexController extends AbstractActionController
     {
         $q = $this->params()->fromQuery();
         $f = [];
-        foreach (['what', 'who', 'from', 'to', 'item', 'field', 'kind', 'after', 'resource'] as $k) {
+        foreach (['what', 'who', 'from', 'to', 'item', 'field', 'kind', 'after', 'resource', 'module', 'entry', 'auto'] as $k) {
             $v = isset($q[$k]) && is_string($q[$k]) ? trim($q[$k]) : '';
             if ($v !== '') {
                 $f[$k] = mb_substr($v, 0, 190);
@@ -89,6 +89,7 @@ class IndexController extends AbstractActionController
             'people' => $reader->people(),
             'fields' => $reader->fields(),
             'summary' => $reader->summary(),
+            'sources' => $reader->sources(),
             'settings' => $this->services->get('Omeka\Settings'),
             'isAdmin' => $this->services->get('Omeka\Acl')->userIsAllowed(self::class, 'copy'),
         ]);
@@ -116,6 +117,7 @@ class IndexController extends AbstractActionController
             'resource' => $resource,
             'filters' => $f,
             'page' => $page,
+            'sources' => $reader->sources($id),
         ]);
     }
 
@@ -204,7 +206,7 @@ class IndexController extends AbstractActionController
         $conn = $this->services->get('Omeka\Connection');
         try {
             $rows = $conn->fetchAllAssociative(
-                'SELECT * FROM `revision_history_event` WHERE (`resource_id` = ? OR `item_id` = ?) AND `id` > ? ORDER BY `id` DESC LIMIT 6',
+                "SELECT * FROM `revision_history_event` WHERE (`resource_id` = ? OR `item_id` = ?) AND `id` > ? AND `action` <> 'noted' ORDER BY `id` DESC LIMIT 6",
                 [$id, $id, $seen]
             );
             $modified = (string) ($conn->fetchOne('SELECT `modified` FROM `resource` WHERE `id` = ?', [$id]) ?: '');
@@ -367,7 +369,7 @@ class IndexController extends AbstractActionController
         });
         $built = $restorer->content($plan, $event['resource_kind']);
         $later = (int) $conn->fetchOne(
-            "SELECT COUNT(*) FROM revision_history_event WHERE resource_kind IN ('item','media','item_set') AND resource_id = ? AND id > ? AND action <> 'created'",
+            "SELECT COUNT(*) FROM revision_history_event WHERE resource_kind IN ('item','media','item_set') AND resource_id = ? AND id > ? AND action NOT IN ('created', 'noted')",
             [$rid, $id]
         );
         // Somebody saved it after you: putting yours back could take theirs with it, and
@@ -521,6 +523,8 @@ class IndexController extends AbstractActionController
     {
         $f = $this->filters();
         unset($f['after']);
+        // The file holds everything the filters match, automatic entries too (1.2.0).
+        $f['auto'] = '1';
         $handle = fopen('php://temp/maxmemory:4194304', 'w+');
         $csv = new \RevisionHistory\Export\Csv(
             $this->services->get('Omeka\Connection'),

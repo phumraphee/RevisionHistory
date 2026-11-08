@@ -204,6 +204,7 @@ class Csv
             'activitylog' => 'copied from Activity Log',
             'vocabsync' => 'recorded by Vocab Sync',
             'watch' => 'found by checking the data itself',
+            'module' => 'written by another module',
         ];
         $lines = 0;
         $f = $filters;
@@ -214,6 +215,21 @@ class Csv
                 [$utc, $local] = $this->when((string) $e['happened_at']);
                 $who = $e['user_name'] !== '' ? $e['user_name'] : ($e['user_id'] ? 'account #' . (int) $e['user_id'] : 'no one signed in');
                 $how = $e['via'] === '' ? '' : trim($e['via'] . ' ' . $this->keyNames((string) $e['via_detail']));
+                // An entry another module wrote: what it is called, and all it says, in the note.
+                if ($e['action'] === 'noted') {
+                    $x = $e['entry'] ?? [];
+                    $label = (string) ($x['label'] ?? $e['module']);
+                    $verb['noted'] = $label . (($x['kind_label'] ?? '') !== '' ? ': ' . $x['kind_label'] : ($e['kind'] !== '' ? ': ' . $e['kind'] : ''))
+                        . ((int) $e['automatic'] ? ' (automatic)' : '');
+                    $said = [(string) ($e['note'] ?? '')];
+                    if (($x['before_text'] ?? null) !== null || ($x['after_text'] ?? null) !== null) {
+                        $said[] = (string) ($x['before_text'] ?? '—') . ' → ' . (string) ($x['after_text'] ?? '—');
+                    }
+                    foreach ($x['details'] ?? [] as $pair) {
+                        $said[] = $pair[0] . ': ' . $pair[1];
+                    }
+                    $e['note'] = implode(' · ', array_filter($said, 'strlen'));
+                }
                 $base = [
                     $utc,
                     $local,

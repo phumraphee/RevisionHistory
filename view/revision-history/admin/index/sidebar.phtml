@@ -56,7 +56,11 @@ $fileName = function (array $ev) {
     <div class="value">
         <span class="rh-side-when"><?= $s->e($when->format('j M Y H:i')) ?></span><br>
         <?= $s->e($who($ev)) ?>
+        <?php if ($ev['action'] === 'noted'): ?>
+        — <?= $s->e((string) (($ev['entry']['label'] ?? '') !== '' ? $ev['entry']['label'] : $ev['module'])) ?>: <?= $s->e(mb_strlen((string) $ev['note']) > 90 ? mb_substr((string) $ev['note'], 0, 89) . '…' : (string) $ev['note']) ?>
+        <?php else: ?>
         <?= $s->e($s->verb($ev['action'])) ?><?= (int) $ev['resource_id'] !== $id ? ' media ' . $s->e($fileName($ev)) : '' ?><?= $n ? ' — ' . $s->e(implode(', ', $n)) : '' ?>
+        <?php endif; ?>
     </div>
     <?php endforeach; ?>
     <div class="value"><a href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => $resource->resourceName() === 'media' && $resource->item() ? $resource->item()->id() : $id])) ?>">Whole history →</a></div>

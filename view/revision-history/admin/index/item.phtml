@@ -46,6 +46,8 @@ echo $this->pageTitle($title, 1, 'History of');
 <?php endforeach; ?>
 </nav>
 
+<?= $this->partial('revision-history/admin/index/sources', ['sources' => $sources ?? [], 'filters' => $filters, 'link' => $link]) ?>
+
 <?php if (!$page['events'] && $what === 'all'): ?>
 <p class="rh-empty">Nothing has been recorded for this yet. The history starts from the first change made after it began to be kept — or from what was copied from other logs.</p>
 <?php else: ?>
