@@ -178,20 +178,24 @@ class Entries
      * Several entries, one row each, written together. 'resources' => [ids] in one entry is the
      * same as that entry once for each.
      *
+     * $opts['limit'] (1.2.1): how many entries this request may write before the rest are only
+     * counted — MAX_PER_REQUEST unless given; 0 = no limit, for a job that knows it writes one entry
+     * on each of many records (a term renamed on every record citing it).
+     *
      * @return int[] ids of the entries written, in order (an entry already written for its ref
      *   gives the id it has)
      */
-    public function addMany(array $entries): array
+    public function addMany(array $entries, array $opts = []): array
     {
         try {
-            return $this->write($entries);
+            return $this->write($entries, isset($opts['limit']) ? max(0, (int) $opts['limit']) : self::MAX_PER_REQUEST);
         } catch (\Throwable $e) {
             $this->failed($e);
             return [];
         }
     }
 
-    private function write(array $entries): array
+    private function write(array $entries, int $limit = self::MAX_PER_REQUEST): array
     {
         $conn = $this->conn();
 
@@ -248,11 +252,11 @@ class Entries
                         continue;
                     }
                 }
-                if (self::$written >= self::MAX_PER_REQUEST) {
+                if ($limit > 0 && self::$written >= $limit) {
                     $key = $module . "\0" . (string) ($e['kind'] ?? '');
                     self::$folded[$key] = (self::$folded[$key] ?? 0) + 1;
                     if (array_sum(self::$folded) === 1) {
-                        $this->log('warn', 'RevisionHistory: more than ' . self::MAX_PER_REQUEST
+                        $this->log('warn', 'RevisionHistory: more than ' . $limit
                             . ' entries from other modules in one request; the rest are counted, not written (Entries::folded()).');
                     }
                     continue;
@@ -278,9 +282,9 @@ class Entries
                 $label = self::text($e['label'] ?? $module, 64);
                 $kind = self::word($e['kind'] ?? '', 40, '/[^a-z0-9._-]/');
                 $conn->insert('revision_history_event', self::quoted(array_merge($base, [
-                    // Each entry is a card of its own: no run key, so the Everything page's grouping
-                    // (Reader::GROUP, evaluated for every row there) is left exactly as it was.
-                    'run_key' => '',
+                    // 'run' (1.2.1): one job's entries on many records are one card on the Everything
+                    // page (Reader::GROUP reads run_key as it is; nothing is added to it).
+                    'run_key' => self::text($e['run'] ?? '', 40),
                     'action' => 'noted',
                     'resource_id' => $id,
                     'resource_kind' => $rec['kind'],

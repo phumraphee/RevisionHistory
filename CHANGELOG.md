@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.1 — 2026-11-08
+
+- **Many values rewritten at once, recorded quickly.** `Outside::valuesRewritten($sql, $params, $note, $opts)`: a module
+  that rewrote thousands of values in one statement and kept each value's old content hands over a query over that
+  record; one entry per record is written with the same lines a save would have, records are read 500 at a time, and
+  the data check's numbers are written down together. A record that had changed without a record before is still
+  reported first.
+- `Outside::around()` takes `$opts`: `run` (one job written in several calls is one card) and `automatic` (folded
+  away on the page like other entries nobody was behind). The three-argument call works as before.
+- `Entries` take `run` too, and `addMany($entries, ['limit' => 0])` lifts the 5,000-a-request limit for a job that
+  writes one entry on each of many records.
+- The data check reads the numbers of the resources one save touched together, not one by one: saves of many
+  records through `Outside::around()` are much faster.
+- "Show automatic (n)" counts every entry nobody was behind, saves too. New index `k_auto` on
+  `revision_history_event`; upgrade from 1.2.0: Modules → Revision History → Upgrade.
+
 ## 1.2.0 — 2026-11-08
 
 - **Entries from other modules.** A module can write into a record's history what happened to it that is not a

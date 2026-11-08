@@ -424,11 +424,13 @@ class Reader
               GROUP BY e.module, e.kind, e.automatic",
             $p
         );
+        // every entry nobody was behind, a module's or a save's (1.2.1: Outside 'automatic')
+        $out['automatic'] = (int) $this->conn->fetchOne(
+            "SELECT COUNT(*) FROM revision_history_event e WHERE $where AND e.automatic = 1",
+            $p
+        );
         foreach ($rows as $r) {
             $m = (string) $r['module'];
-            if ((int) $r['automatic']) {
-                $out['automatic'] += (int) $r['n'];
-            }
             if (!isset($out['modules'][$m])) {
                 $out['modules'][$m] = ['label' => (string) ($r['label'] ?: $m), 'n' => 0, 'auto' => 0, 'kinds' => []];
             }

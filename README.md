@@ -249,6 +249,29 @@ Where the change also altered the media or resource row (a new `sha256` and `siz
 write the entry and the data check will see the difference is accounted for and say
 nothing. Never let a failure to write here fail the work itself.
 
+### Many values at once
+
+`around()` reads every record before and after the write. For a job that rewrites thousands of values in one
+statement and keeps each value's old content itself (an import and its undo), hand over a query over that record
+right after the write instead:
+
+```php
+\RevisionHistory\Outside::fromServices($services)->valuesRewritten(
+    'SELECT value_id, resource_id, property_id, old_type AS before_type, old_value AS before_value
+       FROM example_import_log WHERE import_id = ?',
+    [$importId],
+    'import 12 undone',
+    ['run' => 'example:import:12', 'automatic' => false]
+);
+```
+
+One row per value: `value_id`, `resource_id`, `property_id`, `before_type`, `before_value`, and if you kept them
+`before_uri`, `before_value_resource_id`, `before_lang`, `before_is_public` (a column left out keeps what the value
+holds now). `before_type` NULL: the write added that value. A value the write deleted is put back from the row.
+One entry per record, the same lines a save would have; returns counts and the time it took.
+`around()` takes the same `$opts` as a fourth argument: `run` (up to 40 characters, one card for the job) and
+`automatic` (nobody was behind it: folded away on the page until asked for).
+
 ## Entries from other modules
 
 Not everything that happens to a record is a value. A work goes out to the conservator and comes back; a
@@ -303,7 +326,7 @@ $events->trigger('history.entry', null, [/* the same keys */]);
   adds nothing.
 - `add()` returns the entry's id and **never throws**: if it cannot write, your work stands and the reason is
   logged. Inside your transaction the entry is part of it. One request writes at most 5,000 entries; the rest
-  are counted (`Entries::folded()`) and logged.
+  are counted (`Entries::folded()`) and logged — unless the call says otherwise: `addMany($entries, ['limit' => 0])`.
 - Never put personal data of people outside the archive in an entry (a visitor's name or address): name the
   case ("Loan request 12") and link to where it is kept.
 - `php modules/RevisionHistory/bin/entries.php list` counts them by module and kind;

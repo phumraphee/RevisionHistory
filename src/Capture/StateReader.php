@@ -253,6 +253,23 @@ class StateReader
         return $v === null ? (string) $text : $v;
     }
 
+    /**
+     * Each resource's value ids, per field, in the order read() lists the values (1.2.1): so a
+     * value known by its id can be found in, or put back into, a state that read() made.
+     *
+     * @return array<int, array<string, int[]>> resource id => term => value ids
+     */
+    public function valueIds(array $resourceIds): array
+    {
+        $out = [];
+        foreach (array_chunk(array_values(array_unique(array_filter(array_map('intval', $resourceIds)))), 500) as $chunk) {
+            foreach ($this->values($chunk) as $v) {
+                $out[(int) $v['resource_id']][$v['term']][] = (int) $v['id'];
+            }
+        }
+        return $out;
+    }
+
     private function values(array $resourceIds): array
     {
         $in = implode(',', array_map('intval', $resourceIds));

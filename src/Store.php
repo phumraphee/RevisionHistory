@@ -66,6 +66,7 @@ class Store
                 KEY `k_save` (`save_key`),
                 KEY `k_run` (`run_key`),
                 KEY `k_module` (`module`, `kind`),
+                KEY `k_auto` (`automatic`),
                 UNIQUE KEY `u_source` (`source`, `source_ref`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
             "CREATE TABLE IF NOT EXISTS `revision_history_change` (
@@ -234,6 +235,11 @@ class Store
         }
         try {
             $this->conn->executeStatement('ALTER TABLE `revision_history_event` ADD KEY `k_module` (`module`, `kind`)');
+        } catch (\Throwable $e) {
+        }
+        // 1.2.1: saves nobody was behind (Outside with 'automatic') are folded too; counted by this.
+        try {
+            $this->conn->executeStatement('ALTER TABLE `revision_history_event` ADD KEY `k_auto` (`automatic`)');
         } catch (\Throwable $e) {
         }
         $this->runsBefore();

@@ -74,8 +74,13 @@ class Watchman
      * the notes drawn on it if Image Annotate is installed. Order does not matter to
      * the number, because each line is hashed with its own id in it.
      */
-    private function hashes(int $from, int $to): array
+    private function hashes(int $from, int $to, array $only = []): array
     {
+        // A list of ids instead of a span (1.2.1): the resources one save touched, asked for
+        // together instead of one by one — the same numbers, a few queries for hundreds.
+        $only = array_values(array_unique(array_filter(array_map('intval', $only))));
+        $cond = $only ? 'IN (' . implode(',', $only) . ')' : 'BETWEEN ? AND ?';
+        $p = $only ? [] : [$from, $to];
         $row = "CAST(CONV(SUBSTRING(MD5(%s), 1, 15), 16, 10) AS UNSIGNED)";
         $self = sprintf($row, "CONCAT_WS('\\t', r.id, r.resource_type, r.is_public, COALESCE(r.title, ''), COALESCE(r.owner_id, ''), COALESCE(r.resource_class_id, ''), COALESCE(r.resource_template_id, ''), COALESCE(r.thumbnail_id, ''))");
         $value = sprintf($row, "CONCAT_WS('\\t', v.id, v.property_id, v.type, COALESCE(v.value, ''), COALESCE(v.uri, ''), COALESCE(v.value_resource_id, ''), COALESCE(v.lang, ''), v.is_public, COALESCE(v.value_annotation_id, ''))");
@@ -84,12 +89,12 @@ class Watchman
         $sql = "SELECT r.id AS id, ($self ^ COALESCE(BIT_XOR($value), 0)) AS h
                   FROM resource r
                   LEFT JOIN value v ON v.resource_id = r.id
-                 WHERE r.id BETWEEN ? AND ?
+                 WHERE r.id $cond
                    AND r.resource_type IN (?, ?, ?)
                  GROUP BY r.id, r.resource_type, r.is_public, r.title, r.owner_id, r.resource_class_id, r.resource_template_id, r.thumbnail_id";
         $out = [];
         $kinds = ['Omeka\\Entity\\Item', 'Omeka\\Entity\\Media', 'Omeka\\Entity\\ItemSet'];
-        foreach ($this->conn->fetchAllAssociative($sql, array_merge([$from, $to], $kinds)) as $r) {
+        foreach ($this->conn->fetchAllAssociative($sql, array_merge($p, $kinds)) as $r) {
             $out[(int) $r['id']] = (string) $r['h'];
         }
         // The notes written on values. Asked for on their own, not joined: the same row
@@ -98,9 +103,9 @@ class Watchman
         foreach ($this->conn->fetchAllAssociative(
             "SELECT v.resource_id AS id, BIT_XOR($annotation) AS h
                FROM value v JOIN value av ON av.resource_id = v.value_annotation_id
-              WHERE v.resource_id BETWEEN ? AND ? AND v.value_annotation_id IS NOT NULL
+              WHERE v.resource_id $cond AND v.value_annotation_id IS NOT NULL
               GROUP BY v.resource_id",
-            [$from, $to]
+            $p
         ) as $r) {
             $id = (int) $r['id'];
             if (isset($out[$id])) {
@@ -110,14 +115,14 @@ class Watchman
         // The rest of each resource (HASH 2): an item's primary media, item sets and
         // sites; a media's file, place in its item and settings; an item set's openness.
         $parts = [
-            "SELECT i.id AS id, " . sprintf($row, "CONCAT_WS('\\t', 'pm', i.id, COALESCE(i.primary_media_id, ''))") . " AS h FROM item i WHERE i.id BETWEEN ? AND ?",
-            "SELECT s.id AS id, " . sprintf($row, "CONCAT_WS('\\t', 'open', s.id, s.is_open)") . " AS h FROM item_set s WHERE s.id BETWEEN ? AND ?",
-            "SELECT m.id AS id, " . sprintf($row, "CONCAT_WS('\\t', 'm', m.id, m.item_id, m.ingester, m.renderer, COALESCE(m.data, ''), COALESCE(m.source, ''), COALESCE(m.media_type, ''), COALESCE(m.storage_id, ''), COALESCE(m.extension, ''), COALESCE(m.sha256, ''), COALESCE(m.size, ''), m.has_original, m.has_thumbnails, COALESCE(m.position, ''), COALESCE(m.lang, ''), COALESCE(m.alt_text, ''))") . " AS h FROM media m WHERE m.id BETWEEN ? AND ?",
-            "SELECT x.item_id AS id, BIT_XOR(" . sprintf($row, "CONCAT_WS('\\t', 'set', x.item_id, x.item_set_id)") . ") AS h FROM item_item_set x WHERE x.item_id BETWEEN ? AND ? GROUP BY x.item_id",
-            "SELECT x.item_id AS id, BIT_XOR(" . sprintf($row, "CONCAT_WS('\\t', 'site', x.item_id, x.site_id)") . ") AS h FROM item_site x WHERE x.item_id BETWEEN ? AND ? GROUP BY x.item_id",
+            "SELECT i.id AS id, " . sprintf($row, "CONCAT_WS('\\t', 'pm', i.id, COALESCE(i.primary_media_id, ''))") . " AS h FROM item i WHERE i.id $cond",
+            "SELECT s.id AS id, " . sprintf($row, "CONCAT_WS('\\t', 'open', s.id, s.is_open)") . " AS h FROM item_set s WHERE s.id $cond",
+            "SELECT m.id AS id, " . sprintf($row, "CONCAT_WS('\\t', 'm', m.id, m.item_id, m.ingester, m.renderer, COALESCE(m.data, ''), COALESCE(m.source, ''), COALESCE(m.media_type, ''), COALESCE(m.storage_id, ''), COALESCE(m.extension, ''), COALESCE(m.sha256, ''), COALESCE(m.size, ''), m.has_original, m.has_thumbnails, COALESCE(m.position, ''), COALESCE(m.lang, ''), COALESCE(m.alt_text, ''))") . " AS h FROM media m WHERE m.id $cond",
+            "SELECT x.item_id AS id, BIT_XOR(" . sprintf($row, "CONCAT_WS('\\t', 'set', x.item_id, x.item_set_id)") . ") AS h FROM item_item_set x WHERE x.item_id $cond GROUP BY x.item_id",
+            "SELECT x.item_id AS id, BIT_XOR(" . sprintf($row, "CONCAT_WS('\\t', 'site', x.item_id, x.site_id)") . ") AS h FROM item_site x WHERE x.item_id $cond GROUP BY x.item_id",
         ];
         foreach ($parts as $sql) {
-            foreach ($this->conn->fetchAllAssociative($sql, [$from, $to]) as $r) {
+            foreach ($this->conn->fetchAllAssociative($sql, $p) as $r) {
                 $id = (int) $r['id'];
                 if (isset($out[$id])) {
                     $out[$id] = (string) (((int) $out[$id]) ^ ((int) $r['h']));
@@ -127,8 +132,8 @@ class Watchman
         if ($this->exists('image_annotate_media')) {
             $note = sprintf($row, "CONCAT_WS('\\t', ia.media_id, COALESCE(ia.annotations, ''))");
             foreach ($this->conn->fetchAllAssociative(
-                "SELECT ia.media_id AS id, $note AS h FROM image_annotate_media ia WHERE ia.media_id BETWEEN ? AND ?",
-                [$from, $to]
+                "SELECT ia.media_id AS id, $note AS h FROM image_annotate_media ia WHERE ia.media_id $cond",
+                $p
             ) as $r) {
                 $id = (int) $r['id'];
                 if (isset($out[$id])) {
@@ -138,6 +143,38 @@ class Watchman
             }
         }
         return $out;
+    }
+
+    /** The numbers of these resources now, 500 at a time (1.2.1). */
+    public function hashesOf(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        sort($ids);
+        $out = [];
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $out += $this->hashes(0, 0, $chunk);
+        }
+        return $out;
+    }
+
+    /** The numbers last written down for these resources (1.2.1). */
+    public function storedOf(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        $out = [];
+        foreach (array_chunk($ids, 1000) as $chunk) {
+            foreach ($this->conn->fetchAllAssociative('SELECT resource_id, hash FROM revision_history_digest WHERE resource_id IN (' . implode(',', $chunk) . ')') as $r) {
+                $out[(int) $r['resource_id']] = (string) $r['hash'];
+            }
+        }
+        return $out;
+    }
+
+    /** Whether checks have started (a baseline of this kind of number is written down). */
+    public function watching(): bool
+    {
+        $store = new Store($this->conn);
+        return (bool) $store->meta('watch_baseline') && (int) $store->meta('watch_hash') === self::HASH;
     }
 
     /**
@@ -174,12 +211,9 @@ class Watchman
             $stored[(int) $r['resource_id']] = (string) $r['hash'];
         }
         $stale = [];
+        $now = $this->hashesOf(array_keys($stored));
         foreach ($ids as $id) {
-            if (!isset($stored[$id])) {
-                continue;
-            }
-            $h = $this->hashes($id, $id);
-            if (isset($h[$id]) && (string) $h[$id] !== $stored[$id]) {
+            if (isset($stored[$id], $now[$id]) && (string) $now[$id] !== $stored[$id]) {
                 $stale[] = $id;
             }
         }
@@ -222,11 +256,7 @@ class Watchman
         }
         $now = gmdate('Y-m-d H:i:s');
         $ids = array_values(array_unique(array_map('intval', $ids)));
-        $hashes = [];
-        sort($ids);
-        foreach ($ids as $id) {
-            $hashes += $this->hashes($id, $id);
-        }
+        $hashes = $this->hashesOf($ids);
         $this->remember($hashes, $now);
         if ($this->keepingCopy() && $states) {
             $this->keep(array_intersect_key($states, $hashes), $now);

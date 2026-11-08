@@ -41,6 +41,14 @@ $tone = abs(crc32((string) $e['module'])) % 6;
         <?php endif; ?>
     </div>
     <p class="rh-sum"><?= $s->e((string) $e['note']) ?></p>
+    <?php if (!empty($e['run'])): $more = (int) ($e['run_total'] ?? count($e['run'])); ?>
+    <details class="rh-entry-details"><summary>and <?= $more ?> other record<?= $more === 1 ? '' : 's' ?> in the same run</summary>
+        <ul class="rh-run-list"><?php foreach ($e['run'] as $m): $mid = (int) $m['resource_id']; ?>
+            <li><a href="<?= $s->e($this->url('admin/revision-history', ['action' => 'item', 'id' => $m['resource_kind'] === 'media' && $m['item_id'] ? (int) $m['item_id'] : $mid])) ?>"><?= $s->e($s->nameOf($mid, (string) ($m['title'] ?? ''))) ?></a><?php if (($m['accession'] ?? '') !== ''): ?> <span class="rh-acc"><?= $s->e($m['accession']) ?></span><?php endif; ?></li>
+        <?php endforeach; ?></ul>
+        <?php if ($more > count($e['run'])): ?><p>… the first <?= count($e['run']) ?> are listed.</p><?php endif; ?>
+    </details>
+    <?php endif; ?>
     <?php if (($x['before_text'] ?? null) !== null || ($x['after_text'] ?? null) !== null): ?>
     <p class="rh-ba"><?php if (($x['before_text'] ?? null) !== null): ?><del><?= $s->e($x['before_text']) ?></del><?php else: ?><span class="rh-none">—</span><?php endif; ?>
         <span aria-hidden="true">→</span>
