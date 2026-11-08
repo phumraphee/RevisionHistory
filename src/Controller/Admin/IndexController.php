@@ -337,6 +337,22 @@ class IndexController extends AbstractActionController
             $this->messenger()->addWarning('This entry cannot be put back from here.');
             return $this->redirect()->toRoute('admin/revision-history');
         }
+        // one entry about many records (1.2.2): put back for one of them, with only its lines
+        $record = (int) $this->params()->fromQuery('record', 0);
+        $own = null;
+        if ((int) ($event['shared'] ?? 0) > 0) {
+            $own = $conn->fetchAssociative('SELECT * FROM revision_history_shared WHERE event_id = ? AND resource_id = ?', [$id, $record]);
+            if (!$own) {
+                $this->messenger()->addWarning('This entry is about many records: open it from the page of the record to put back.');
+                return $this->redirect()->toRoute('admin/revision-history');
+            }
+            $event['resource_id'] = (int) $own['resource_id'];
+            $event['resource_kind'] = (string) $own['resource_kind'];
+            $event['item_id'] = $own['item_id'] === null ? null : (int) $own['item_id'];
+            $event['title'] = $own['title'];
+            $event['accession'] = (string) $own['accession'];
+        }
+        $again = $this->url()->fromRoute('admin/revision-history', ['action' => 'restore', 'id' => $id], $own ? ['query' => ['record' => $record]] : []);
         $rid = (int) $event['resource_id'];
         $back = $this->url()->fromRoute('admin/revision-history', ['action' => 'item', 'id' => $event['resource_kind'] === 'media' && $event['item_id'] ? (int) $event['item_id'] : $rid]);
         [$me, $role] = $this->whoAmI();
@@ -357,6 +373,15 @@ class IndexController extends AbstractActionController
                 'after' => $c['after_json'] === null ? null : json_decode($c['after_json'], true),
             ];
         }
+        if ($own) {
+            $mine = [];
+            foreach (explode(',', (string) $own['ords']) as $ord) {
+                if (isset($changes[(int) $ord - 1])) {
+                    $mine[] = $changes[(int) $ord - 1];
+                }
+            }
+            $changes = $mine;
+        }
         $reader = new \RevisionHistory\Capture\StateReader($conn, (string) $this->services->get('Omeka\Settings')->get('revision_history_accession_term', 'dcterms:identifier'));
         $now = $reader->read([$rid])[$rid] ?? null;
         if (!$now) {
@@ -369,8 +394,10 @@ class IndexController extends AbstractActionController
         });
         $built = $restorer->content($plan, $event['resource_kind']);
         $later = (int) $conn->fetchOne(
-            "SELECT COUNT(*) FROM revision_history_event WHERE resource_kind IN ('item','media','item_set') AND resource_id = ? AND id > ? AND action NOT IN ('created', 'noted')",
-            [$rid, $id]
+            "SELECT COUNT(*) FROM revision_history_event WHERE id > ? AND action NOT IN ('created', 'noted')
+                AND ((resource_kind IN ('item','media','item_set') AND resource_id = ?)
+                  OR (shared > 0 AND id IN (SELECT event_id FROM revision_history_shared WHERE resource_id = ?)))",
+            [$id, $rid, $rid]
         );
         // Somebody saved it after you: putting yours back could take theirs with it, and
         // weighing that is a global administrator's call.
@@ -384,15 +411,15 @@ class IndexController extends AbstractActionController
             $csrf = new \Laminas\Validator\Csrf(['name' => 'revision_history_csrf', 'timeout' => 3600]);
             if (!$csrf->isValid($this->params()->fromPost('revision_history_csrf', ''))) {
                 $this->messenger()->addError('The form expired. Nothing was put back — press the button again.');
-                return $this->redirect()->toRoute('admin/revision-history', ['action' => 'restore', 'id' => $id]);
+                return $this->redirect()->toUrl($again);
             }
             if (!$this->params()->fromPost('revision_history_sure')) {
                 $this->messenger()->addWarning('Nothing was put back: "Are you sure?" was not ticked.');
-                return $this->redirect()->toRoute('admin/revision-history', ['action' => 'restore', 'id' => $id]);
+                return $this->redirect()->toUrl($again);
             }
             if (!$plan['any'] || $built['unsure']) {
                 $this->messenger()->addWarning('Nothing was put back.');
-                return $this->redirect()->toRoute('admin/revision-history', ['action' => 'restore', 'id' => $id]);
+                return $this->redirect()->toUrl($again);
             }
             try {
                 $this->api()->update(\RevisionHistory\Restore\Restorer::apiName($event['resource_kind']), $rid, \RevisionHistory\Restore\Restorer::withInverses($built['content']), [], [
@@ -401,7 +428,7 @@ class IndexController extends AbstractActionController
                 ]);
             } catch (\Throwable $e) {
                 $this->messenger()->addError('Omeka did not save it: ' . $e->getMessage());
-                return $this->redirect()->toRoute('admin/revision-history', ['action' => 'restore', 'id' => $id]);
+                return $this->redirect()->toUrl($again);
             }
             // The save just made is in the history like any other; say what it was.
             $mine = $conn->fetchOne(

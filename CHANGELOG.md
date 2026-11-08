@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.2 — 2026-11-08
+
+- **One entry about many records.** `Outside::valuesShared($sql, $params, $note, $opts)` — the same call as
+  `valuesRewritten()` — writes one entry for a statement that rewrote values on thousands of records, not one per
+  record. Each different change is one line; each record is one row of the new table `revision_history_shared`
+  that names its own lines and keeps its name as it was. A record's page shows the entry as its own, with only its
+  lines, and Restore there puts back only those; the Everything page shows one card with the records under it.
+  `Entries::addShared($entry)`: the same for an entry of another module (a term renamed on every record citing it).
+  `add()`, `addMany()`, `around()` and `valuesRewritten()` are unchanged.
+- The data check counts such an entry for each of its records. Their full copies (when kept) are taken away by the
+  write and made again by the next check, which now makes any copy that is missing.
+- New column `shared` on `revision_history_event`, new table `revision_history_shared`; upgrade from 1.2.1:
+  Modules → Revision History → Upgrade. `bin/entries.php remove` removes an entry's record rows with it.
+
 ## 1.2.1 — 2026-11-08
 
 - **Many values rewritten at once, recorded quickly.** `Outside::valuesRewritten($sql, $params, $note, $opts)`: a module

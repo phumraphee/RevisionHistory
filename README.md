@@ -269,6 +269,16 @@ One row per value: `value_id`, `resource_id`, `property_id`, `before_type`, `bef
 `before_uri`, `before_value_resource_id`, `before_lang`, `before_is_public` (a column left out keeps what the value
 holds now). `before_type` NULL: the write added that value. A value the write deleted is put back from the row.
 One entry per record, the same lines a save would have; returns counts and the time it took.
+
+**As one entry (1.2.2).** `valuesShared()` takes the same arguments and writes ONE entry for the whole statement
+instead of one per record — for a rewrite of thousands of records, a few seconds instead of a minute. Each
+different change (field, value before, value after) is one line of the entry, however many records got it; each
+record gets one row in `revision_history_shared` that says which lines are its own, with its name as it was. So
+records whose changes differ — another field, another term, a language, a link instead of words — keep exactly
+their own lines. A record's page shows the entry as its own, with only its lines, and *Restore* there puts back only
+those, for that record. The Everything page shows one card with the records under it. The data check's numbers
+are written down for all of them together; their full copies (when the archive keeps one) are made again by the
+next check. Check for it with `method_exists($outside, 'valuesShared')` and fall back to `valuesRewritten()`.
 `around()` takes the same `$opts` as a fourth argument: `run` (up to 40 characters, one card for the job) and
 `automatic` (nobody was behind it: folded away on the page until asked for).
 
@@ -327,6 +337,12 @@ $events->trigger('history.entry', null, [/* the same keys */]);
 - `add()` returns the entry's id and **never throws**: if it cannot write, your work stands and the reason is
   logged. Inside your transaction the entry is part of it. One request writes at most 5,000 entries; the rest
   are counted (`Entries::folded()`) and logged — unless the call says otherwise: `addMany($entries, ['limit' => 0])`.
+- **One entry about many records (1.2.2):** `addShared($entry)` takes the same keys with `'resources' => [ids]`
+  and writes one entry, not one per record — a term renamed on 8,000 records citing it is one row, plus one row per
+  record in `revision_history_shared`, written in the database in one pass. Every record's page shows it, with the
+  record's own name kept with its row; the Everything page shows it once, with its records. The `ref` is the
+  entry's (no `#id` per record); the same call again writes nothing. No limit per request. It needs 1.2.2: check
+  with `method_exists($entries, 'addShared')`.
 - Never put personal data of people outside the archive in an entry (a visitor's name or address): name the
   case ("Loan request 12") and link to where it is kept.
 - `php modules/RevisionHistory/bin/entries.php list` counts them by module and kind;

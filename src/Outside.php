@@ -254,6 +254,259 @@ class Outside
     }
 
     /**
+     * MANY VALUES REWRITTEN IN ONE STATEMENT, AS ONE ENTRY (1.2.2).
+     *
+     * The same question as valuesRewritten() — the same $sql over the module's own copy of each
+     * value as it was, called right after the write — answered with ONE entry for the whole
+     * statement instead of one per record. Each different change (field, the value before, the
+     * value after) is one line of that entry, however many records it was made to; each record is
+     * one row of revision_history_shared that says which lines are its own. So records whose
+     * changes differ (another field, another term, a language, a link instead of words) keep
+     * exactly their own lines: a record's page shows the entry with only its lines, and Restore
+     * there puts back only those. Nothing is read record by record: the lines, the records and
+     * their names are worked out in the database, and the data check's numbers of all of them are
+     * read together and written down.
+     *
+     * The entry is a copy that reads on its own, like every other: what each line held, each
+     * record's name as it was, who did it. Nothing of the calling module is read to show it.
+     *
+     * A record that had already changed without a record before this write is reported first, as
+     * valuesRewritten() does.
+     *
+     * $opts: 'run', 'automatic' as for around().
+     *
+     * @return array{rows:int, records:int, lines:int, entry:int, stale:int, ms:int}
+     */
+    public function valuesShared(string $sql, array $params = [], string $note = '', array $opts = []): array
+    {
+        $t0 = microtime(true);
+        $stats = ['rows' => 0, 'records' => 0, 'lines' => 0, 'entry' => 0, 'stale' => 0, 'ms' => 0];
+        $tmp = 'rh_shared_' . bin2hex(random_bytes(4));
+        $map = $tmp . '_l';
+        $own = false;
+        $conn = null;
+        try {
+            $conn = $this->services->get('Omeka\Connection');
+            $settings = $this->services->get('Omeka\Settings');
+            $first = $conn->fetchAssociative("SELECT * FROM ($sql) q LIMIT 1", $params);
+            if (!$first) {
+                return $stats;
+            }
+            // what the module kept of each value; a column it did not keep holds what the value holds now
+            $before = [];
+            foreach (['value' => 'value', 'uri' => 'uri', 'value_resource_id' => 'vr', 'lang' => 'lang', 'is_public' => 'pub'] as $col => $short) {
+                $before[$short] = array_key_exists('before_' . $col, $first) ? "q.before_$col" : "v.$col";
+            }
+            $conn->executeStatement("CREATE TEMPORARY TABLE $tmp (
+                value_id INT NOT NULL PRIMARY KEY, resource_id INT NOT NULL, property_id INT NOT NULL, k CHAR(32) NOT NULL DEFAULT '',
+                b_type VARCHAR(190) NULL, b_value LONGTEXT NULL, b_uri LONGTEXT NULL, b_vr INT NULL, b_lang VARCHAR(190) NULL, b_pub TINYINT NULL,
+                is_now TINYINT NOT NULL, a_type VARCHAR(190) NULL, a_value LONGTEXT NULL, a_uri LONGTEXT NULL, a_vr INT NULL, a_lang VARCHAR(190) NULL,
+                a_pub TINYINT NULL, a_ann INT NULL, KEY k_k (k), KEY k_r (resource_id)) ENGINE = InnoDB");
+            $was = 'q.before_type IS NOT NULL';
+            $stats['rows'] = (int) $conn->executeStatement("INSERT IGNORE INTO $tmp
+                SELECT q.value_id, q.resource_id, q.property_id, '',
+                       q.before_type, IF($was, {$before['value']}, NULL), IF($was, {$before['uri']}, NULL), IF($was, {$before['vr']}, NULL),
+                       IF($was, {$before['lang']}, NULL), IF($was, COALESCE({$before['pub']}, 1), NULL),
+                       v.id IS NOT NULL, v.type, v.value, v.uri, v.value_resource_id, v.lang, v.is_public, v.value_annotation_id
+                  FROM ($sql) q LEFT JOIN value v ON v.id = q.value_id
+                 WHERE q.value_id > 0 AND q.resource_id > 0 AND q.property_id > 0", $params);
+            // one key per different change; NULL and '' are told apart here and made one below (sig)
+            $z = "CHAR(0)";
+            $conn->executeStatement("UPDATE $tmp SET k = MD5(CONCAT_WS(CHAR(31), property_id,
+                COALESCE(b_type, $z), COALESCE(b_value, $z), COALESCE(b_uri, $z), COALESCE(b_vr, $z), COALESCE(b_lang, $z), COALESCE(b_pub, $z),
+                IF(is_now, COALESCE(a_type, $z), $z), IF(is_now, COALESCE(a_value, $z), $z), IF(is_now, COALESCE(a_uri, $z), $z),
+                IF(is_now, COALESCE(a_vr, $z), $z), IF(is_now, COALESCE(a_lang, $z), $z), IF(is_now, COALESCE(a_pub, $z), $z)))");
+
+            $terms = [];
+            $lines = [];
+            $ordOf = [];
+            $byKey = [];
+            foreach ($conn->fetchAllAssociative("SELECT k, MIN(property_id) AS property_id, MIN(b_type) AS b_type, MIN(b_value) AS b_value,
+                    MIN(b_uri) AS b_uri, MIN(b_vr) AS b_vr, MIN(b_lang) AS b_lang, MIN(b_pub) AS b_pub, MIN(is_now) AS is_now, MIN(a_type) AS a_type,
+                    MIN(a_value) AS a_value, MIN(a_uri) AS a_uri, MIN(a_vr) AS a_vr, MIN(a_lang) AS a_lang, MIN(a_pub) AS a_pub
+                    FROM $tmp GROUP BY k ORDER BY MIN(value_id)") as $g) {
+                $pid = (int) $g['property_id'];
+                if (!isset($terms[$pid])) {
+                    $terms[$pid] = (string) $conn->fetchOne(
+                        "SELECT CONCAT(vo.prefix, ':', p.local_name) FROM property p JOIN vocabulary vo ON vo.id = p.vocabulary_id WHERE p.id = ?", [$pid]);
+                }
+                if ($terms[$pid] === '') {
+                    continue;
+                }
+                $b = $g['b_type'] === null ? null : StateReader::sig(['type' => $g['b_type'], 'value' => $g['b_value'], 'uri' => $g['b_uri'],
+                    'value_resource_id' => $g['b_vr'], 'lang' => $g['b_lang'], 'is_public' => $g['b_pub']], []);
+                $a = !(int) $g['is_now'] ? null : StateReader::sig(['type' => $g['a_type'], 'value' => $g['a_value'], 'uri' => $g['a_uri'],
+                    'value_resource_id' => $g['a_vr'], 'lang' => $g['a_lang'], 'is_public' => $g['a_pub']], []);
+                if ($b === $a) {
+                    continue;   // matched by the module's query, not changed by its write
+                }
+                $op = $b === null ? 'added' : ($a === null ? 'removed' : 'edited');
+                $line = json_encode([$pid, $op, $b, $a], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                if (!isset($ordOf[$line])) {
+                    $lines[] = ['op' => $op, 'field' => $terms[$pid], 'property_id' => $pid, 'before' => $b, 'after' => $a];
+                    $ordOf[$line] = count($lines);
+                }
+                $byKey[$g['k']] = $ordOf[$line];
+            }
+            if (!$lines) {
+                return $stats;
+            }
+            $stats['lines'] = count($lines);
+            $conn->executeStatement("CREATE TEMPORARY TABLE $map (k CHAR(32) NOT NULL PRIMARY KEY, ord INT NOT NULL) ENGINE = InnoDB");
+            foreach (array_chunk($byKey, 500, true) as $chunk) {
+                $marks = [];
+                $p = [];
+                foreach ($chunk as $k => $ord) {
+                    $marks[] = '(?,?)';
+                    array_push($p, (string) $k, (int) $ord);
+                }
+                $conn->executeStatement("INSERT INTO $map (k, ord) VALUES " . implode(',', $marks), $p);
+            }
+
+            // the data check: each record's number now, and the one it had before this write
+            // (its number now with each changed value put back), against the one written down
+            $watchman = new Watchman($conn, $settings);
+            $watching = $watchman->watching();
+            $ids = array_map('intval', $conn->fetchFirstColumn("SELECT DISTINCT c.resource_id FROM $tmp c JOIN $map l ON l.k = c.k ORDER BY c.resource_id"));
+            $stats['records'] = count($ids);
+            $now = $watching ? $watchman->hashesOf($ids) : [];
+            if ($watching) {
+                $stored = $watchman->storedOf($ids);
+                $expected = [];
+                $unknown = [];
+                $rows = $conn->executeQuery("SELECT c.* FROM $tmp c JOIN $map l ON l.k = c.k");
+                while ($r = $rows->fetchAssociative()) {
+                    $rid = (int) $r['resource_id'];
+                    if (!isset($now[$rid])) {
+                        continue;
+                    }
+                    $vid = (int) $r['value_id'];
+                    $h = $expected[$rid] ?? (int) $now[$rid];
+                    if ((int) $r['is_now']) {
+                        $h ^= self::rowHash($vid, ['property_id' => $r['property_id'], 'type' => $r['a_type'], 'value' => $r['a_value'], 'uri' => $r['a_uri'],
+                            'value_resource_id' => $r['a_vr'], 'lang' => $r['a_lang'], 'is_public' => $r['a_pub'], 'value_annotation_id' => $r['a_ann']]);
+                    } else {
+                        $unknown[$rid] = true;   // deleted: its note, if it had one, was not kept
+                    }
+                    if ($r['b_type'] !== null) {
+                        $h ^= self::rowHash($vid, ['property_id' => $r['property_id'], 'type' => $r['b_type'], 'value' => $r['b_value'], 'uri' => $r['b_uri'],
+                            'value_resource_id' => $r['b_vr'], 'lang' => $r['b_lang'], 'is_public' => $r['b_pub'], 'value_annotation_id' => $r['a_ann']]);
+                    }
+                    $expected[$rid] = $h;
+                }
+                $stale = [];
+                foreach ($expected as $rid => $h) {
+                    if (!isset($unknown[$rid]) && isset($stored[$rid]) && (string) $h !== $stored[$rid]) {
+                        $stale[] = $rid;
+                    }
+                }
+                if ($stale) {
+                    $this->reportStaleShared($conn, $settings, $watchman, $tmp, $map, $stale, $terms);
+                    $stats['stale'] = count($stale);
+                }
+            }
+
+            // the entry: one row, its lines, and one row per record, all or nothing
+            $reader = new StateReader($conn, (string) $settings->get('revision_history_accession_term', 'dcterms:identifier'));
+            $head = $reader->read([$ids[0]])[$ids[0]] ?? null;
+            if (!$head) {
+                return $stats;
+            }
+            $base = self::opts((new Recorder($this->services))->moment(), $opts);
+            if ($note !== '') {
+                $base['note'] = $note;
+            }
+            $base['shared'] = count($ids);
+            $own = (int) $conn->getTransactionNestingLevel() === 0;
+            if ($own) {
+                $conn->beginTransaction();
+            }
+            $store = new Store($conn);
+            $eventId = $store->write($base + self::about('edited', $head), $lines);
+            $names = self::nameFields($conn, $settings);
+            $len = (int) $conn->fetchOne('SELECT @@SESSION.group_concat_max_len');
+            $conn->executeStatement('SET SESSION group_concat_max_len = 16777216');
+            try {
+                $conn->executeStatement("INSERT INTO revision_history_shared (event_id, resource_id, resource_kind, item_id, title, accession, name, ords)
+                    SELECT ?, c.resource_id,
+                           CASE r.resource_type WHEN 'Omeka\\\\Entity\\\\Item' THEN 'item' WHEN 'Omeka\\\\Entity\\\\Media' THEN 'media' ELSE 'item_set' END,
+                           CASE r.resource_type WHEN 'Omeka\\\\Entity\\\\Item' THEN r.id WHEN 'Omeka\\\\Entity\\\\Media' THEN m.item_id ELSE NULL END,
+                           r.title,
+                           COALESCE((SELECT LEFT(n.value, 190) FROM value n WHERE n.resource_id = c.resource_id AND n.property_id = ? AND n.value <> '' ORDER BY n.id LIMIT 1), ''),
+                           (SELECT LEFT(n.value, 1000) FROM value n WHERE n.resource_id = c.resource_id AND n.property_id = ? AND n.value <> '' ORDER BY n.id LIMIT 1),
+                           GROUP_CONCAT(l.ord ORDER BY c.value_id)
+                      FROM $tmp c JOIN $map l ON l.k = c.k JOIN resource r ON r.id = c.resource_id LEFT JOIN media m ON m.id = r.id
+                     WHERE r.resource_type IN ('Omeka\\\\Entity\\\\Item', 'Omeka\\\\Entity\\\\Media', 'Omeka\\\\Entity\\\\ItemSet')
+                     GROUP BY c.resource_id, r.resource_type, r.title, m.item_id",
+                    [$eventId, $names['accession'], $names['name']]);
+            } finally {
+                $conn->executeStatement('SET SESSION group_concat_max_len = ' . max(1024, $len));
+            }
+            if ($own) {
+                $conn->commit();
+                $own = false;
+            }
+            $stats['entry'] = $eventId;
+            $watchman->afterShared($now);
+        } catch (\Throwable $e) {
+            if ($own && $conn && $conn->isTransactionActive()) {
+                $conn->rollBack();
+            }
+            $this->failed('valuesShared', $e);
+        } finally {
+            if ($conn) {
+                foreach ([$tmp, $map] as $t) {
+                    try {
+                        $conn->executeStatement("DROP TEMPORARY TABLE IF EXISTS $t");
+                    } catch (\Throwable $ignored) {
+                    }
+                }
+            }
+        }
+        $stats['ms'] = (int) round((microtime(true) - $t0) * 1000);
+        return $stats;
+    }
+
+    /** The property ids of the two fields a record is named by (0 when not set). */
+    private static function nameFields($conn, $settings): array
+    {
+        $out = [];
+        foreach (['accession' => ['revision_history_accession_term', 'dcterms:identifier'], 'name' => ['revision_history_title_term', 'dcterms:title']] as $k => [$key, $default]) {
+            [$prefix, $local] = array_pad(explode(':', (string) $settings->get($key, $default), 2), 2, '');
+            $out[$k] = $prefix === '' || $local === '' ? 0 : (int) $conn->fetchOne(
+                'SELECT p.id FROM property p JOIN vocabulary vo ON vo.id = p.vocabulary_id WHERE vo.prefix = ? AND p.local_name = ?', [$prefix, $local]);
+        }
+        return $out;
+    }
+
+    /** The few records valuesShared() found already changed: each reported with what it held just before. */
+    private function reportStaleShared($conn, $settings, Watchman $watchman, string $tmp, string $map, array $stale, array $terms): void
+    {
+        $reader = new StateReader($conn, (string) $settings->get('revision_history_accession_term', 'dcterms:identifier'));
+        foreach (array_chunk($stale, 500) as $chunk) {
+            $after = $reader->read($chunk);
+            $vids = $reader->valueIds($chunk);
+            $by = [];
+            $cur = [];
+            foreach ($conn->fetchAllAssociative("SELECT c.* FROM $tmp c JOIN $map l ON l.k = c.k WHERE c.resource_id IN (" . implode(',', $chunk) . ')') as $r) {
+                $by[(int) $r['resource_id']][] = ['value_id' => $r['value_id'], 'resource_id' => $r['resource_id'], 'property_id' => $r['property_id'],
+                    'before_type' => $r['b_type'], 'before_value' => $r['b_value'], 'before_uri' => $r['b_uri'], 'before_value_resource_id' => $r['b_vr'],
+                    'before_lang' => $r['b_lang'], 'before_is_public' => $r['b_pub']];
+                if ((int) $r['is_now']) {
+                    $cur[(int) $r['value_id']] = ['id' => $r['value_id'], 'property_id' => $r['property_id'], 'type' => $r['a_type'], 'value' => $r['a_value'],
+                        'uri' => $r['a_uri'], 'value_resource_id' => $r['a_vr'], 'lang' => $r['a_lang'], 'is_public' => $r['a_pub'], 'value_annotation_id' => $r['a_ann']];
+                }
+            }
+            foreach ($chunk as $rid) {
+                if (isset($after[$rid])) {
+                    [$before] = self::putBack($after[$rid], $vids[$rid] ?? [], $by[$rid] ?? [], $cur, $terms, null);
+                    $watchman->reportStale($rid, $before);
+                }
+            }
+        }
+    }
+
+    /**
      * A record as it was before the logged rows were written: its state now, each logged value put
      * back where it stands (by id, as StateReader orders them). Also the data check's number it had
      * then, worked out from its number now; $known is false when a deleted value's whole row was not

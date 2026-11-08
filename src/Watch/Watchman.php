@@ -186,8 +186,19 @@ class Watchman
      */
     private function accounted(int $id, string $since, bool $others = false): bool
     {
-        return (bool) $this->conn->fetchOne(
+        if ($this->conn->fetchOne(
             'SELECT 1 FROM revision_history_event WHERE resource_kind IN (\'item\',\'media\',\'item_set\') AND (resource_id = ? OR item_id = ?) AND happened_at >= ? AND action <> \'noted\'' . ($others ? " AND source <> 'here'" : '') . ' LIMIT 1',
+            [$id, $id, $since]
+        )) {
+            return true;
+        }
+        // one entry about many records (1.2.2): the record is one of its rows
+        if ($others || !$this->exists('revision_history_shared')) {
+            return false;
+        }
+        return (bool) $this->conn->fetchOne(
+            "SELECT 1 FROM revision_history_shared s JOIN revision_history_event e ON e.id = s.event_id
+              WHERE (s.resource_id = ? OR s.item_id = ?) AND e.happened_at >= ? AND e.action <> 'noted' LIMIT 1",
             [$id, $id, $since]
         );
     }
@@ -264,6 +275,28 @@ class Watchman
         foreach ($gone as $id) {
             $this->conn->executeStatement('DELETE FROM revision_history_digest WHERE resource_id = ?', [(int) $id]);
             $this->conn->executeStatement('DELETE FROM revision_history_shadow WHERE resource_id = ?', [(int) $id]);
+        }
+    }
+
+    /**
+     * Right after one entry about many records (Outside::valuesShared, 1.2.2): their numbers as
+     * they are now, worked out by the caller, are written down. Their copies are not made here —
+     * that is reading every record in full, the slow part — but taken away, and the next check
+     * makes them again (run(): copies that are missing).
+     *
+     * @param array<int,string> $hashes resource id => number now
+     */
+    public function afterShared(array $hashes): void
+    {
+        $store = new Store($this->conn);
+        if (!$hashes || !$store->meta('watch_baseline') || (int) $store->meta('watch_hash') !== self::HASH) {
+            return;
+        }
+        $this->remember($hashes, gmdate('Y-m-d H:i:s'));
+        if ($this->keepingCopy()) {
+            foreach (array_chunk(array_keys($hashes), 1000) as $chunk) {
+                $this->conn->executeStatement('DELETE FROM revision_history_shadow WHERE resource_id IN (' . implode(',', array_map('intval', $chunk)) . ')');
+            }
         }
     }
 
@@ -496,6 +529,22 @@ class Watchman
                     $this->conn->executeStatement('DELETE FROM revision_history_digest WHERE resource_id = ?', [$id]);
                     $this->conn->executeStatement('DELETE FROM revision_history_shadow WHERE resource_id = ?', [$id]);
                 }
+            }
+
+            // Copies taken away after one entry about many records (afterShared): made again
+            // here, from the records as they are now, which their numbers say are as recorded.
+            if ($copy && !$first) {
+                do {
+                    $missing = array_map('intval', $this->conn->fetchFirstColumn(
+                        'SELECT d.resource_id FROM revision_history_digest d LEFT JOIN revision_history_shadow s ON s.resource_id = d.resource_id
+                          WHERE s.resource_id IS NULL ORDER BY d.resource_id LIMIT 500'
+                    ));
+                    $states = $missing ? $this->reader()->read($missing) : [];
+                    if ($states) {
+                        $this->keep($states, $now);
+                    }
+                    // one gone between the two reads is left to the next check
+                } while ($states && count($missing) === 500);
             }
 
             $tables = $this->tables();

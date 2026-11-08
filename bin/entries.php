@@ -73,6 +73,7 @@ switch ($cmd) {
                 $in = implode(',', array_map('intval', $ids));
                 $conn->beginTransaction();
                 $conn->executeStatement("DELETE FROM revision_history_entry WHERE event_id IN ($in)");
+                $conn->executeStatement("DELETE FROM revision_history_shared WHERE event_id IN ($in)");
                 $done += (int) $conn->executeStatement("DELETE FROM revision_history_event WHERE id IN ($in)");
                 $conn->commit();
             }

@@ -57,6 +57,7 @@ class Store
                 `module` VARCHAR(64) NOT NULL DEFAULT '',
                 `kind` VARCHAR(40) NOT NULL DEFAULT '',
                 `automatic` TINYINT NOT NULL DEFAULT 0,
+                `shared` INT NOT NULL DEFAULT 0,
                 PRIMARY KEY (`id`),
                 KEY `k_when` (`happened_at`),
                 KEY `k_resource` (`resource_id`),
@@ -163,6 +164,23 @@ class Store
                 `undoes` VARCHAR(120) NOT NULL DEFAULT '',
                 PRIMARY KEY (`event_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+            // One entry about many records (1.2.2, Outside::valuesShared, Entries::addShared): which
+            // records it is about, each with its name as it was then and, for values, which of the
+            // entry's lines are its own (ords of revision_history_change, in value order). The entry
+            // itself is one row of revision_history_event whose `shared` says how many.
+            "CREATE TABLE IF NOT EXISTS `revision_history_shared` (
+                `event_id` INT UNSIGNED NOT NULL,
+                `resource_id` INT NOT NULL,
+                `resource_kind` VARCHAR(32) NOT NULL,
+                `item_id` INT NULL,
+                `title` TEXT NULL,
+                `accession` VARCHAR(190) NOT NULL DEFAULT '',
+                `name` TEXT NULL,
+                `ords` MEDIUMTEXT NULL,
+                PRIMARY KEY (`event_id`, `resource_id`),
+                KEY `k_resource` (`resource_id`),
+                KEY `k_item` (`item_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
             // The module's own small notes — progress of a copy, its last report. Not
             // Omeka's settings: Activity Log writes a row for every setting that is saved,
             // and a copy that reports its progress there would keep making more to copy.
@@ -240,6 +258,11 @@ class Store
         // 1.2.1: saves nobody was behind (Outside with 'automatic') are folded too; counted by this.
         try {
             $this->conn->executeStatement('ALTER TABLE `revision_history_event` ADD KEY `k_auto` (`automatic`)');
+        } catch (\Throwable $e) {
+        }
+        // 1.2.2: one entry about many records (revision_history_shared) says how many.
+        try {
+            $this->conn->executeStatement('ALTER TABLE `revision_history_event` ADD COLUMN `shared` INT NOT NULL DEFAULT 0');
         } catch (\Throwable $e) {
         }
         $this->runsBefore();

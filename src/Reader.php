@@ -31,6 +31,9 @@ class Reader
 
     const WHAT = ['all', 'created', 'deleted', 'added', 'removed', 'edited'];
 
+    /** One entry about many records (1.2.2) that names this record or a media of it: two ids. */
+    const SHARED_OF = '(e.shared > 0 AND e.id IN (SELECT xs.event_id FROM revision_history_shared xs WHERE xs.resource_id = ? OR xs.item_id = ?))';
+
     /** @var Connection */
     private $conn;
 
@@ -122,10 +125,12 @@ class Reader
         $item = trim((string) ($f['item'] ?? ''));
         if ($item !== '') {
             if (ctype_digit($item)) {
-                $where[] = "((e.resource_kind IN ('item','media','item_set') AND (e.resource_id = ? OR e.item_id = ?)) OR (e.resource_kind = 'ValueAnnotation' AND e.via_detail = ?))";
+                $where[] = "((e.resource_kind IN ('item','media','item_set') AND (e.resource_id = ? OR e.item_id = ?)) OR (e.resource_kind = 'ValueAnnotation' AND e.via_detail = ?) OR " . self::SHARED_OF . ')';
                 $p[] = (int) $item;
                 $p[] = (int) $item;
                 $p[] = '/admin/item/' . (int) $item . '/edit';
+                $p[] = (int) $item;
+                $p[] = (int) $item;
             } else {
                 $like = '%' . addcslashes($item, '%_\\') . '%';
                 [$prefix, $local] = array_pad(explode(':', $this->titleTerm, 2), 2, '');
@@ -136,16 +141,21 @@ class Reader
                         JOIN property pr ON pr.id = v.property_id JOIN vocabulary vo ON vo.id = pr.vocabulary_id
                         WHERE vo.prefix = ? AND pr.local_name = ? AND v.value LIKE ?)
                     OR e.resource_id IN (SELECT de.resource_id FROM revision_history_event de JOIN revision_history_change dc ON dc.event_id = de.id
-                        WHERE de.action = 'deleted' AND dc.field = ? AND dc.before_json LIKE ?))";
-                array_push($p, addcslashes($item, '%_\\') . '%', $like, $prefix, $local, $like, $this->titleTerm, $like);
+                        WHERE de.action = 'deleted' AND dc.field = ? AND dc.before_json LIKE ?)
+                    OR e.id IN (SELECT xs.event_id FROM revision_history_shared xs WHERE xs.accession LIKE ? OR xs.title LIKE ? OR xs.name LIKE ?))";
+                array_push($p, addcslashes($item, '%_\\') . '%', $like, $prefix, $local, $like, $this->titleTerm, $like, addcslashes($item, '%_\\') . '%', $like, $like);
             }
         }
         if (!empty($f['resource'])) {
-            $where[] = "((e.resource_kind IN ('item','media','item_set') AND (e.resource_id = ? OR e.item_id = ?)) OR (e.resource_kind = 'ValueAnnotation' AND e.via_detail = ?))";
+            $where[] = "((e.resource_kind IN ('item','media','item_set') AND (e.resource_id = ? OR e.item_id = ?)) OR (e.resource_kind = 'ValueAnnotation' AND e.via_detail = ?) OR " . self::SHARED_OF . ')';
             $p[] = (int) $f['resource'];
             $p[] = (int) $f['resource'];
             $p[] = '/admin/item/' . (int) $f['resource'] . '/edit';
+            $p[] = (int) $f['resource'];
+            $p[] = (int) $f['resource'];
         }
+        // the record a page is about: an entry about many records is shown there as that record's
+        $record = !empty($f['resource']) ? (int) $f['resource'] : (ctype_digit($item) ? (int) $item : 0);
 
         $kind = (string) ($f['kind'] ?? '');
         if ($kind === 'resources') {
@@ -272,7 +282,8 @@ class Reader
                     . ' AND ' . self::GROUP . ' = ? AND e.id <> ? ORDER BY e.happened_at DESC, e.id DESC LIMIT ' . self::RUN_SHOWN,
                     array_merge($filterParams, [$r['grp'], $id])
                 );
-                $byId[$id]['run_sum'] = $byId[$id]['run_touch'] ? [] : $this->runSum($filters, $filterParams, (string) $r['grp']);
+                $byId[$id]['run_sum'] = $byId[$id]['run_touch'] ? [] : $this->runSum(array_merge($filters, ['e.shared = 0']), $filterParams, (string) $r['grp'],
+                    $this->sharedLines(array_merge([$r], $byId[$id]['run'])));
                 $members = [];
                 foreach ($byId[$id]['run'] as $i => $m) {
                     $byId[$id]['run'][$i]['changes'] = [];
@@ -297,7 +308,157 @@ class Reader
                     );
             }
         }
-        return ['events' => array_values($byId), 'next' => $next, 'what' => $what];
+        return ['events' => $this->shared(array_values($byId), $record), 'next' => $next, 'what' => $what];
+    }
+
+    /**
+     * ONE ENTRY ABOUT MANY RECORDS (1.2.2), drawn the way the page draws everything else. On a
+     * record's page: as that record's own entry — its name as it was, only its lines (a media of
+     * the item named too gets a card of its own). Elsewhere: one card for the entry, its records
+     * listed under it as a run's are, each with its own lines, and a line counted once per record.
+     */
+    private function shared(array $events, int $record): array
+    {
+        $out = [];
+        foreach ($events as $e) {
+            $members = [];
+            foreach (array_merge([$e], $e['run'] ?? []) as $m) {
+                if ((int) ($m['shared'] ?? 0) > 0) {
+                    $members[] = $m;
+                }
+            }
+            if (!$members) {
+                $out[] = $e;
+                continue;
+            }
+            if ($record > 0 && (int) ($e['shared'] ?? 0) > 0) {
+                foreach ($this->conn->fetchAllAssociative(
+                    'SELECT * FROM revision_history_shared WHERE event_id = ? AND (resource_id = ? OR item_id = ?) ORDER BY resource_kind <> \'item\', resource_id',
+                    [(int) $e['id'], $record, $record]
+                ) as $row) {
+                    $out[] = self::asRecord($e, $row);
+                }
+                continue;
+            }
+            // the card: the entry as its first record's, and every other record of it (and of
+            // the other entries in its run) listed under it
+            $list = [];
+            $total = 0;
+            foreach ($e['run'] ?? [] as $m) {
+                if ((int) ($m['shared'] ?? 0) === 0) {
+                    $list[] = $m;
+                    $total++;
+                }
+            }
+            if (!empty($e['run'])) {
+                // members of the run beyond the ones listed
+                $total += max(0, (int) ($e['run_total'] ?? 0) - count($e['run']));
+            }
+            $head = null;
+            foreach ($members as $m) {
+                $rows = $this->conn->fetchAllAssociative(
+                    'SELECT * FROM revision_history_shared WHERE event_id = ? ORDER BY resource_id LIMIT ' . (self::RUN_SHOWN + 1),
+                    [(int) $m['id']]
+                );
+                $total += (int) $m['shared'];
+                foreach ($rows as $row) {
+                    $copy = self::asRecord($m, $row);
+                    if ($head === null && (int) $m['id'] === (int) $e['id']) {
+                        $head = $copy;
+                        continue;
+                    }
+                    if (count($list) < self::RUN_SHOWN) {
+                        $list[] = $copy;
+                    }
+                }
+            }
+            if ($head === null) {
+                $head = (int) ($e['shared'] ?? 0) > 0 ? array_merge($e, ['changes' => []]) : $e;
+            }
+            $head['run'] = $list;
+            $head['run_total'] = max(count($list), $total - 1);
+            $head['run_touch'] = false;
+            if ($head['action'] !== 'noted' && !isset($e['run_sum'])) {
+                $head['run_sum'] = $this->runSum(['1=0'], [], '', $this->sharedLines($members));
+            } elseif (isset($e['run_sum'])) {
+                $head['run_sum'] = $e['run_sum'];
+            }
+            if (!$head['run']) {
+                unset($head['run']);
+            }
+            $out[] = $head;
+        }
+        return $out;
+    }
+
+    /** An entry about many records, as the entry of one of them (its revision_history_shared row). */
+    private static function asRecord(array $e, array $row): array
+    {
+        $e['resource_id'] = (int) $row['resource_id'];
+        $e['resource_kind'] = (string) $row['resource_kind'];
+        $e['item_id'] = $row['item_id'] === null ? null : (int) $row['item_id'];
+        $e['title'] = $row['title'];
+        $e['accession'] = (string) $row['accession'];
+        if (isset($e['entry'])) {
+            $e['entry']['record_name'] = $row['name'];
+        }
+        $e['shared_record'] = (int) $row['resource_id'];
+        if ($e['action'] !== 'noted') {
+            $own = [];
+            $lines = $e['changes'] ?? [];
+            foreach (explode(',', (string) $row['ords']) as $ord) {
+                if (isset($lines[(int) $ord - 1])) {
+                    $own[] = $lines[(int) $ord - 1];
+                }
+            }
+            $e['changes'] = $own;
+            [$e['n_added'], $e['n_removed'], $e['n_edited']] = [0, 0, 0];
+            foreach ($own as $c) {
+                $k = 'n_' . ($c['op'] === 'order' ? 'edited' : $c['op']);
+                if (isset($e[$k])) {
+                    $e[$k]++;
+                }
+            }
+        }
+        unset($e['run'], $e['run_total'], $e['run_sum']);
+        return $e;
+    }
+
+    /**
+     * The lines of entries about many records, each with how many of their records have it —
+     * for a run's summary (runSum's $extra). Needs each entry's 'changes' (all its lines, in ord).
+     */
+    private function sharedLines(array $events): array
+    {
+        $out = [];
+        foreach ($events as $m) {
+            if ((int) ($m['shared'] ?? 0) === 0 || ($m['action'] ?? '') === 'noted') {
+                continue;
+            }
+            $lines = $m['changes'] ?? [];
+            if (!$lines) {
+                foreach ($this->conn->fetchAllAssociative(
+                    'SELECT op, field, property_id, before_json, after_json FROM revision_history_change WHERE event_id = ? ORDER BY ord', [(int) $m['id']]
+                ) as $c) {
+                    $c['before'] = $c['before_json'] === null ? null : json_decode($c['before_json'], true);
+                    $c['after'] = $c['after_json'] === null ? null : json_decode($c['after_json'], true);
+                    $lines[] = $this->alias->row($c);
+                }
+            }
+            $n = [];
+            $rows = $this->conn->executeQuery('SELECT ords FROM revision_history_shared WHERE event_id = ?', [(int) $m['id']]);
+            while (($l = $rows->fetchOne()) !== false) {
+                foreach (array_unique(explode(',', (string) $l)) as $ord) {
+                    $n[(int) $ord] = ($n[(int) $ord] ?? 0) + 1;
+                }
+            }
+            foreach ($lines as $i => $c) {
+                if (!empty($n[$i + 1])) {
+                    $out[] = $c + ['n' => $n[$i + 1]];
+                }
+            }
+        }
+        return $out;
     }
 
     /**
@@ -308,7 +469,7 @@ class Reader
      *
      * @return array<int, array{op:string, field:string, property_id:?int, before:?array, after:?array, n:int, values:bool}>
      */
-    public function runSum(array $filters, array $params, string $runKey): array
+    public function runSum(array $filters, array $params, string $runKey, array $extra = []): array
     {
         $params[] = $runKey;
         $result = $this->conn->executeQuery(
@@ -320,7 +481,25 @@ class Reader
         );
         $full = [];
         $byField = [];
-        while ($r = $result->fetchAssociative()) {
+        // lines of entries about many records (1.2.2), each already counted: $x['n'] records
+        $fake = 0;
+        $rowsOf = function () use ($result, &$extra, &$fake) {
+            if ($r = $result->fetchAssociative()) {
+                return $r;
+            }
+            $x = array_shift($extra);
+            if (!$x) {
+                return false;
+            }
+            $r = ['op' => $x['op'], 'field' => $x['field'], 'property_id' => $x['property_id'],
+                'before_json' => $x['before'] === null ? null : json_encode($x['before']), 'after_json' => $x['after'] === null ? null : json_encode($x['after'])];
+            $r['ids'] = [];
+            for ($i = 0; $i < (int) $x['n']; $i++) {
+                $r['ids'][] = --$fake;   // stand-in ids, one per record, below every real one
+            }
+            return $r;
+        };
+        while ($r = $rowsOf()) {
             // The whole field, kept so one save's card can draw it. A round of Batch
             // Values over a hundred items would put a hundred copies of it in the
             // summary, saying nothing the lines beside it do not already say.
@@ -345,7 +524,9 @@ class Reader
                         'ids' => [],
                     ];
                 }
-                $list[$t[1]]['ids'][(int) $r['id']] = true;
+                foreach (isset($r['ids']) ? $r['ids'] : [(int) $r['id']] as $one) {
+                    $list[$t[1]]['ids'][$one] = true;
+                }
                 unset($list);
             }
         }
@@ -407,8 +588,8 @@ class Reader
         $where = '1=1';
         $p = [];
         if ($resource > 0) {
-            $where = "e.resource_kind IN ('item','media','item_set') AND (e.resource_id = ? OR e.item_id = ?)";
-            $p = [$resource, $resource];
+            $where = "((e.resource_kind IN ('item','media','item_set') AND (e.resource_id = ? OR e.item_id = ?)) OR " . self::SHARED_OF . ')';
+            $p = [$resource, $resource, $resource, $resource];
         }
         $out = ['values' => 0, 'modules' => [], 'automatic' => 0];
         if ($resource > 0) {

@@ -195,6 +195,101 @@ class Entries
         }
     }
 
+    /**
+     * ONE ENTRY ABOUT MANY RECORDS (1.2.2): the same keys as add(), with 'resources' => [ids],
+     * written as one entry instead of one per record — a term renamed on the 8,000 records citing
+     * it is one row, and one row per record in revision_history_shared that names it, written
+     * together in the database. Each record's page shows the entry; the Everything page shows it
+     * once, with the records it is about. The words are the same for every record (the summary,
+     * the two sides, the details); each record's own name is kept with its row.
+     *
+     * The ref is the entry's ('my_log:42', not one per record), so the same call made again
+     * writes nothing. No limit per request: it is one entry.
+     *
+     * @return int the entry's id; 0 when nothing was written
+     */
+    public function addShared(array $entry): int
+    {
+        $conn = null;
+        $own = false;
+        try {
+            $ids = isset($entry['resources']) && is_array($entry['resources']) ? $entry['resources'] : [$entry['resource'] ?? 0];
+            $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+            sort($ids);
+            $conn = $this->conn();
+            // the first record that is still there carries the entry, as for add()
+            $head = 0;
+            foreach (array_chunk($ids, 1000) as $chunk) {
+                $head = (int) $conn->fetchOne("SELECT MIN(id) FROM resource WHERE id IN (" . implode(',', $chunk) . ")
+                    AND resource_type IN ('Omeka\\\\Entity\\\\Item', 'Omeka\\\\Entity\\\\Media', 'Omeka\\\\Entity\\\\ItemSet')");
+                if ($head) {
+                    break;
+                }
+            }
+            if (!$head) {
+                return 0;
+            }
+            $one = $entry;
+            unset($one['resources']);
+            $one['resource'] = $head;
+            $own = (int) $conn->getTransactionNestingLevel() === 0;
+            if ($own) {
+                $conn->beginTransaction();
+            }
+            $sourceRef = self::text($entry['ref'] ?? '', 120);
+            $module = self::word($entry['module'] ?? '', 64, '/[^A-Za-z0-9_.-]/');
+            $had = $sourceRef === '' ? false : $conn->fetchOne(
+                "SELECT id FROM revision_history_event WHERE source = 'module' AND source_ref = ?", [mb_substr($module . ':' . $sourceRef, 0, 64)]);
+            if ($had) {
+                if ($own) {
+                    $conn->commit();
+                }
+                return (int) $had;
+            }
+            $eventId = (int) ($this->write([$one], 0)[0] ?? 0);
+            if (!$eventId) {
+                if ($own) {
+                    $conn->rollBack();
+                }
+                return 0;
+            }
+            $terms = $this->terms($conn);
+            $pid = function (string $term) use ($conn): int {
+                [$prefix, $local] = array_pad(explode(':', $term, 2), 2, '');
+                return $prefix === '' || $local === '' ? 0 : (int) $conn->fetchOne(
+                    'SELECT p.id FROM property p JOIN vocabulary vo ON vo.id = p.vocabulary_id WHERE vo.prefix = ? AND p.local_name = ?', [$prefix, $local]);
+            };
+            $acc = $pid($terms['accession']);
+            $name = $pid($terms['name']);
+            $n = 0;
+            foreach (array_chunk($ids, 1000) as $chunk) {
+                $n += (int) $conn->executeStatement("INSERT IGNORE INTO revision_history_shared (event_id, resource_id, resource_kind, item_id, title, accession, name, ords)
+                    SELECT ?, r.id,
+                           CASE r.resource_type WHEN 'Omeka\\\\Entity\\\\Item' THEN 'item' WHEN 'Omeka\\\\Entity\\\\Media' THEN 'media' ELSE 'item_set' END,
+                           CASE r.resource_type WHEN 'Omeka\\\\Entity\\\\Item' THEN r.id WHEN 'Omeka\\\\Entity\\\\Media' THEN m.item_id ELSE NULL END,
+                           r.title,
+                           COALESCE((SELECT LEFT(v.value, 190) FROM value v WHERE v.resource_id = r.id AND v.property_id = ? AND v.value <> '' ORDER BY v.id LIMIT 1), ''),
+                           (SELECT LEFT(v.value, 1000) FROM value v WHERE v.resource_id = r.id AND v.property_id = ? AND v.value <> '' ORDER BY v.id LIMIT 1),
+                           NULL
+                      FROM resource r LEFT JOIN media m ON m.id = r.id
+                     WHERE r.id IN (" . implode(',', $chunk) . ")
+                       AND r.resource_type IN ('Omeka\\\\Entity\\\\Item', 'Omeka\\\\Entity\\\\Media', 'Omeka\\\\Entity\\\\ItemSet')",
+                    [$eventId, $acc, $name]);
+            }
+            $conn->executeStatement('UPDATE revision_history_event SET shared = ? WHERE id = ?', [$n, $eventId]);
+            if ($own) {
+                $conn->commit();
+            }
+            return $eventId;
+        } catch (\Throwable $e) {
+            if ($own && $conn && $conn->getTransactionNestingLevel() > 0) {
+                $conn->rollBack();
+            }
+            $this->failed($e);
+            return 0;
+        }
+    }
+
     private function write(array $entries, int $limit = self::MAX_PER_REQUEST): array
     {
         $conn = $this->conn();

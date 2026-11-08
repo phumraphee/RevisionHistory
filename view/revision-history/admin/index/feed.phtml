@@ -342,7 +342,7 @@ $day = null;
         } ?></span>
         <?php if ($e['note'] && $changes && $isResource): ?><span class="rh-note-foot"><?= $s->e($e['note']) ?></span><?php endif; ?>
         <?php if (!$isRun && $changes && \RevisionHistory\Restore\Restorer::can($e) && $canRestore && ($meGlobal || ($meId && (int) $e['user_id'] === $meId))): ?>
-        <a class="rh-restore-link" href="<?= $s->e($this->url('admin/revision-history', ['action' => 'restore', 'id' => (int) $e['id']])) ?>"><?= $s->e($this->translate('Restore')) ?></a>
+        <a class="rh-restore-link" href="<?= $s->e($this->url('admin/revision-history', ['action' => 'restore', 'id' => (int) $e['id']], !empty($e['shared_record']) ? ['query' => ['record' => (int) $e['shared_record']]] : [])) ?>"><?= $s->e($this->translate('Restore')) ?></a>
         <?php elseif (!$isRun && \RevisionHistory\Restore\Reviver::can($e) && $canRevive && !$exists): ?>
         <a class="rh-restore-link" href="<?= $s->e($this->url('admin/revision-history', ['action' => 'revive', 'id' => (int) $e['id']])) ?>"><?= $s->e($this->translate('Restore')) ?></a>
         <?php endif; ?>
