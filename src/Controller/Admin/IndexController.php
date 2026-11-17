@@ -324,7 +324,7 @@ class IndexController extends AbstractActionController
      * and what would not, and nothing is written until it is confirmed.
      *
      * Global administrators may put back any save. Since 1.0.5 a site administrator or
-     * editor may put back a save of their OWN, while nobody has saved that resource
+     * editor (and since 1.2.3 a reviewer) may put back a save of their OWN, while nobody has saved that resource
      * since — the ACL (Module::OWN_RESTORERS) lets them reach this page, and these lines
      * are what hold them to their own work.
      */

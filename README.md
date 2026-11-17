@@ -570,8 +570,8 @@ Omeka S 4.x (Doctrine DBAL 2.11 or newer, which Omeka 4 ships). PHP 7.4+. MySQL 
 ## Who may see it
 
 Global admin, site admin, editor, reviewer. Copying, checking and bringing back what was deleted:
-global admin. Putting a save back: global admin, and a site admin or editor for their own save
-while nobody has saved over it (1.0.5).
+global admin. Putting a save back: global admin, and a site admin, editor or reviewer (1.2.3) for
+their own save while nobody has saved over it (1.0.5).
 
 ## Which address is recorded
 

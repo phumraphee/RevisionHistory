@@ -31,9 +31,10 @@ class Module extends AbstractModule
      * Who may put back a save of THEIR OWN, when nobody has saved the resource since
      * (1.0.5). An editor could already cancel a Batch Values run but had to find a global
      * administrator to undo one save of their own; the rule in restoreAction() keeps
-     * everybody else's work out of their reach.
+     * everybody else's work out of their reach. 1.2.3: a reviewer too — Omeka lets a
+     * reviewer change every resource, so undoing their own save is no more than that.
      */
-    const OWN_RESTORERS = ['site_admin', 'editor'];
+    const OWN_RESTORERS = ['site_admin', 'editor', 'reviewer'];
 
     public function getConfig()
     {

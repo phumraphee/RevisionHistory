@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.3 — 2026-11-17
+
+- A reviewer may put back a save of their own, like a site admin or editor (`Module::OWN_RESTORERS`): Omeka lets a
+  reviewer change every resource, so undoing their own save is no more than that. Other people's saves stay out of
+  reach, as before. No database change.
+
 ## 1.2.2 — 2026-11-08
 
 - **One entry about many records.** `Outside::valuesShared($sql, $params, $note, $opts)` — the same call as
